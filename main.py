@@ -1,9 +1,10 @@
 import os
+import sys
 import json
 import sqlite3
 import logging
 import threading
-import requests
+import requests as req_lib
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -40,30 +41,127 @@ def init_db():
     conn.close()
 
 
+def _playwright_wb_parse(article):
+    from playwright.sync_api import sync_playwright
+    result = {"name": None, "price": None, "link": None}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                locale="ru-RU",
+            )
+            page = context.new_page()
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+            detail_data = []
+
+            def on_response(resp):
+                if "__internal/u-card/cards/v4/detail" in resp.url and resp.status == 200:
+                    try:
+                        detail_data.append(resp.json())
+                    except Exception:
+                        pass
+
+            page.on("response", on_response)
+            page.goto(
+                f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
+                timeout=60000,
+                wait_until="networkidle",
+            )
+            page.wait_for_timeout(10000)
+            browser.close()
+
+            if detail_data:
+                product = detail_data[0]["products"][0]
+                sizes = product.get("sizes", [])
+                if sizes:
+                    pr = sizes[0].get("price", {})
+                    sale = pr.get("product", 0)
+                    if sale > 0:
+                        result["name"] = product.get("name", "")
+                        result["price"] = sale / 100
+                        result["link"] = f"https://www.wildberries.ru/catalog/{article}/detail.aspx"
+    except Exception as e:
+        logger.error(f"Playwright WB parse error for {article}: {e}")
+    return result
+
+
+def _playwright_wb_parse_batch(articles):
+    from playwright.sync_api import sync_playwright
+    results = {}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                viewport={"width": 1920, "height": 1080},
+                locale="ru-RU",
+            )
+            page = context.new_page()
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+            for article in articles:
+                result = {"name": None, "price": None, "link": None}
+                try:
+                    detail_data = []
+
+                    def on_response(resp):
+                        if "__internal/u-card/cards/v4/detail" in resp.url and resp.status == 200:
+                            try:
+                                detail_data.append(resp.json())
+                            except Exception:
+                                pass
+
+                    page.on("response", on_response)
+                    page.goto(
+                        f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
+                        timeout=60000,
+                        wait_until="networkidle",
+                    )
+                    page.wait_for_timeout(10000)
+                    page.remove_listener("response", on_response)
+
+                    if detail_data:
+                        product = detail_data[0]["products"][0]
+                        sizes = product.get("sizes", [])
+                        if sizes:
+                            pr = sizes[0].get("price", {})
+                            sale = pr.get("product", 0)
+                            if sale > 0:
+                                result["name"] = product.get("name", "")
+                                result["price"] = sale / 100
+                                result["link"] = f"https://www.wildberries.ru/catalog/{article}/detail.aspx"
+                except Exception as e:
+                    logger.error(f"Playwright WB parse error for {article}: {e}")
+                results[article] = result
+
+            browser.close()
+    except Exception as e:
+        logger.error(f"Playwright batch error: {e}")
+        for article in articles:
+            if article not in results:
+                results[article] = {"name": None, "price": None, "link": None}
+    return results
+
+
 def parse_wb(article):
-    url = f"https://card.wb.ru/cards/v2/detail?appType=1&curr=RUB&dest=-1257786&nm={article}"
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
-    r = requests.get(url, headers=headers, timeout=15)
-    if r.status_code != 200:
-        return None
-    products = r.json().get("data", {}).get("products", [])
-    if not products:
-        return None
-    p = products[0]
-    for s in p.get("sizes", []):
-        pr = s.get("price", {})
-        if pr and pr.get("product", 0) > 0:
-            return {
-                "name": p.get("name", ""),
-                "sale_price": pr.get("product", 0) / 100,
-                "link": f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
-            }
+    result = _playwright_wb_parse(article)
+    if result["price"]:
+        return result
     return None
 
 
 def parse_tim(url):
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/html"}
-    r = requests.get(url, headers=headers, timeout=20, verify=False)
+    r = req_lib.get(url, headers=headers, timeout=20, verify=False)
     if r.status_code != 200:
         return None
     import re
@@ -85,7 +183,10 @@ def parse_tim(url):
 def get_product(article, store):
     try:
         if store == "wb":
-            return parse_wb(article)
+            result = parse_wb(article)
+            if result and result["price"]:
+                return {"name": result["name"], "sale_price": result["price"], "link": result["link"]}
+            return None
         elif store == "tim":
             return parse_tim(article)
     except Exception as e:
@@ -186,9 +287,24 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("Нет товаров.", reply_markup=main_menu_keyboard())
             return
         await query.edit_message_text("Проверяю цены...")
+
+        wb_articles = [r["article"] for r in rows if r["store"] == "wb"]
+        wb_results = {}
+        if wb_articles:
+            import asyncio
+            wb_results = await asyncio.get_event_loop().run_in_executor(
+                None, _playwright_wb_parse_batch, wb_articles
+            )
+
         for r in rows:
             pid, article, store, last_price = r["id"], r["article"], r["store"], r["last_price"]
-            info = get_product(article, store)
+            if store == "wb":
+                wr = wb_results.get(article, {})
+                info = {"name": wr.get("name"), "sale_price": wr.get("price"), "link": wr.get("link")} if wr.get("price") else None
+            else:
+                info = await asyncio.get_event_loop().run_in_executor(
+                    None, get_product, article, store
+                )
             if not info:
                 await query.message.reply_text(f"❌ {article} — ошибка")
                 continue
@@ -210,8 +326,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💰 {new_price:.0f} ₽ — без изменений\n"
                     f"🔗 {info['link']}"
                 )
+            conn = get_db()
             conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
             conn.commit()
+            conn.close()
             await query.message.reply_text(msg)
 
     elif data.startswith("remove_"):
@@ -257,7 +375,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Получаю цену...")
 
-    info = get_product(article, store)
+    import asyncio
+    if store == "wb":
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, _playwright_wb_parse, article
+        )
+        info = {"name": result["name"], "sale_price": result["price"], "link": result["link"]} if result.get("price") else None
+    else:
+        info = await asyncio.get_event_loop().run_in_executor(
+            None, get_product, article, store
+        )
+
     if not info:
         await update.message.reply_text("Не удалось получить данные. Проверь правильность.")
         return
@@ -293,9 +421,27 @@ async def check_prices(context):
         conn.close()
         return
     logger.info(f"Checking {len(rows)} products...")
+
+    import asyncio
+
+    wb_rows = [r for r in rows if r["store"] == "wb"]
+    tim_rows = [r for r in rows if r["store"] == "tim"]
+
+    wb_results = {}
+    if wb_articles := [r["article"] for r in wb_rows]:
+        wb_results = await asyncio.get_event_loop().run_in_executor(
+            None, _playwright_wb_parse_batch, wb_articles
+        )
+
     for r in rows:
         pid, chat_id, article, store, last_price = r["id"], r["chat_id"], r["article"], r["store"], r["last_price"]
-        info = get_product(article, store)
+        if store == "wb":
+            wr = wb_results.get(article, {})
+            info = {"name": wr.get("name"), "sale_price": wr.get("price"), "link": wr.get("link")} if wr.get("price") else None
+        else:
+            info = await asyncio.get_event_loop().run_in_executor(
+                None, get_product, article, store
+            )
         if not info:
             continue
         new_price = info["sale_price"]
