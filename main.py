@@ -109,6 +109,7 @@ def settings_keyboard(chat_id):
             row = []
     if row:
         buttons.append(row)
+    buttons.append([InlineKeyboardButton("🔔 Тест уведомления", callback_data="test_notify")])
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
     return InlineKeyboardMarkup(buttons)
 
@@ -235,6 +236,52 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⚙️ Настройки\n\nПроверка цены каждые: **{hours} ч.**",
             reply_markup=settings_keyboard(chat_id),
             parse_mode="Markdown",
+        )
+
+    elif data == "test_notify":
+        await query.answer("Проверяю...")
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
+            (chat_id,),
+        ).fetchall()
+        conn.close()
+        if not rows:
+            await query.edit_message_text(
+                "Нет товаров для проверки.\nДобавь через ➕ Добавить товар",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+        await query.edit_message_text("🔔 Тест: проверяю цены...")
+        import asyncio
+        for r in rows:
+            pid, url, last_price = r["id"], r["url"], r["last_price"]
+            try:
+                info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
+            except Exception as e:
+                await query.message.reply_text(f"❌ Ошибка: {e}")
+                continue
+            if not info:
+                await query.message.reply_text(f"❌ Не удалось: {url[:50]}")
+                continue
+            new_price = info["sale_price"]
+            if last_price > 0 and new_price != last_price:
+                diff = new_price - last_price
+                sym = "+" if diff > 0 else ""
+                msg = f"🔔 Тест\n\n📦 {info['name']}\n💰 {last_price:.0f} → {new_price:.0f} ₽ ({sym}{diff:.0f})\n🔗 {info['link']}"
+            else:
+                msg = f"🔔 Тест\n\n📦 {info['name']}\n💰 {new_price:.0f} ₽\n🔗 {info['link']}"
+            conn = get_db()
+            conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
+            conn.commit()
+            conn.close()
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+            ])
+            await query.message.reply_text(msg, reply_markup=kb)
+        await query.message.reply_text(
+            f"✅ Тест завершён! Товаров: {len(rows)}",
+            reply_markup=main_menu_keyboard(),
         )
 
     elif data.startswith("remove_"):
