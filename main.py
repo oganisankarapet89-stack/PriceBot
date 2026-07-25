@@ -4,10 +4,12 @@ import sqlite3
 import logging
 import threading
 import requests
-from datetime import datetime
 from flask import Flask
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ContextTypes, filters,
+)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8871269578:AAEpCKDtZIbcQzgnPWjvw1P4vekwL1FVH28")
 CHECK_INTERVAL = 6
@@ -91,104 +93,196 @@ def get_product(article, store):
     return None
 
 
+def main_menu_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("➕ Добавить товар", callback_data="add"),
+            InlineKeyboardButton("📦 Мои товары", callback_data="list"),
+        ],
+        [
+            InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
+        ],
+    ])
+
+
+def store_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🟣 Wildberries", callback_data="store_wb"),
+            InlineKeyboardButton("🔵 TIM-Зейслер", callback_data="store_tim"),
+        ],
+    ])
+
+
+def products_keyboard(rows):
+    buttons = []
+    for r in rows:
+        store_name = STORE_NAMES.get(r["store"], r["store"])
+        price = f"{r['last_price']:.0f}₽" if r["last_price"] > 0 else "—"
+        text = f"❌ {r['id']} | {store_name} | {price}"
+        buttons.append([InlineKeyboardButton(text, callback_data=f"remove_{r['id']}")])
+    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
+    return InlineKeyboardMarkup(buttons)
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "PriceBot — отслеживаю цены\n\n"
-        "/add_wb <артикул> — товар Wildberries\n"
-        "/add_tim <ссылка> — товар TIM-Зейслер\n"
-        "/list — мои товары\n"
-        "/check — проверить цены\n"
-        "/remove <id> — удалить товар"
+        "PriceBot\n\nОтслеживаю цены на WB и TIM-Зейслер.\n"
+        "Выбери действие:",
+        reply_markup=main_menu_keyboard(),
     )
 
 
-async def cmd_add_wb(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Использование: /add_wb 12345678")
-        return
-    article = context.args[0].strip()
-    if not article.isdigit():
-        await update.message.reply_text("Артикул WB должен быть числом.")
-        return
-    conn = get_db()
-    conn.execute("INSERT INTO products(chat_id, article, store) VALUES(?, ?, 'wb')", (update.effective_chat.id, article))
-    conn.commit()
-    conn.close()
-    await update.message.reply_text(f"Добавлен {article}. Проверка каждые {CHECK_INTERVAL}ч.")
+async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = query.message.chat.id
 
+    if data == "back":
+        await query.edit_message_text(
+            "PriceBot\n\nВыбери действие:",
+            reply_markup=main_menu_keyboard(),
+        )
 
-async def cmd_add_tim(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Использование: /add_tim <ссылка>")
-        return
-    url = context.args[0].strip()
-    if not url.startswith("http"):
-        await update.message.reply_text("Нужна ссылка на товар TIM.")
-        return
-    conn = get_db()
-    conn.execute("INSERT INTO products(chat_id, article, store) VALUES(?, ?, 'tim')", (update.effective_chat.id, url))
-    conn.commit()
-    conn.close()
-    await update.message.reply_text(f"Добавлен товар TIM. Проверка каждые {CHECK_INTERVAL}ч.")
+    elif data == "add":
+        await query.edit_message_text(
+            "Выбери магазин:",
+            reply_markup=store_keyboard(),
+        )
 
+    elif data == "store_wb":
+        context.user_data["add_store"] = "wb"
+        await query.edit_message_text("Отправь артикул товара с Wildberries\n(число из URL)")
 
-async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_db()
-    rows = conn.execute("SELECT id, article, store, last_price FROM products WHERE chat_id=?", (update.effective_chat.id,)).fetchall()
-    conn.close()
-    if not rows:
-        await update.message.reply_text("Пусто. Добавь: /add_wb 12345678")
-        return
-    text = "Твои товары:\n\n"
-    for r in rows:
-        store_name = STORE_NAMES.get(r["store"], r["store"])
-        price = f"{r['last_price']:.2f} ₽" if r["last_price"] > 0 else "ожидание"
-        text += f"ID {r['id']} | {store_name} | {r['article']}\n💰 {price}\n\n"
-    await update.message.reply_text(text)
+    elif data == "store_tim":
+        context.user_data["add_store"] = "tim"
+        await query.edit_message_text("Отправь ссылку на товар TIM-Зейслер")
 
-
-async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_db()
-    rows = conn.execute("SELECT id, article, store, last_price FROM products WHERE chat_id=?", (update.effective_chat.id,)).fetchall()
-    if not rows:
+    elif data == "list":
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, article, store, last_price FROM products WHERE chat_id=?",
+            (chat_id,),
+        ).fetchall()
         conn.close()
-        await update.message.reply_text("Нет товаров.")
-        return
-    await update.message.reply_text("Проверяю...")
-    for r in rows:
-        pid, article, store, last_price = r["id"], r["article"], r["store"], r["last_price"]
-        info = get_product(article, store)
-        if not info:
-            await update.message.reply_text(f"{article} — ошибка")
-            continue
-        new_price = info["sale_price"]
-        store_name = STORE_NAMES.get(store, store)
-        if last_price > 0 and new_price != last_price:
-            diff = new_price - last_price
-            sym = "+" if diff > 0 else ""
-            msg = f"{info['name']}\n{store_name} | {article}\n{last_price:.2f} → {new_price:.2f} ({sym}{diff:.2f})\n{info['link']}"
-        else:
-            msg = f"{info['name']}\n{store_name} | {article}\n{new_price:.2f} ₽ — без изменений\n{info['link']}"
-        conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
+        if not rows:
+            await query.edit_message_text(
+                "Нет товаров.\n\nНажми «Добавить товар»:",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+        text = "Твои товары:\nНажми чтобы удалить:\n\n"
+        await query.edit_message_text(text, reply_markup=products_keyboard(rows))
+
+    elif data == "check":
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, article, store, last_price FROM products WHERE chat_id=?",
+            (chat_id,),
+        ).fetchall()
+        conn.close()
+        if not rows:
+            await query.edit_message_text("Нет товаров.", reply_markup=main_menu_keyboard())
+            return
+        await query.edit_message_text("Проверяю цены...")
+        for r in rows:
+            pid, article, store, last_price = r["id"], r["article"], r["store"], r["last_price"]
+            info = get_product(article, store)
+            if not info:
+                await query.message.reply_text(f"❌ {article} — ошибка")
+                continue
+            new_price = info["sale_price"]
+            store_name = STORE_NAMES.get(store, store)
+            if last_price > 0 and new_price != last_price:
+                diff = new_price - last_price
+                sym = "+" if diff > 0 else ""
+                msg = (
+                    f"📦 {info['name']}\n"
+                    f"🏪 {store_name}\n"
+                    f"💰 {last_price:.0f} → {new_price:.0f} ₽ ({sym}{diff:.0f})\n"
+                    f"🔗 {info['link']}"
+                )
+            else:
+                msg = (
+                    f"📦 {info['name']}\n"
+                    f"🏪 {store_name}\n"
+                    f"💰 {new_price:.0f} ₽ — без изменений\n"
+                    f"🔗 {info['link']}"
+                )
+            conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
+            conn.commit()
+            await query.message.reply_text(msg)
+
+    elif data.startswith("remove_"):
+        pid = int(data.split("_")[1])
+        conn = get_db()
+        conn.execute("DELETE FROM products WHERE id=?", (pid,))
         conn.commit()
-        await update.message.reply_text(msg)
-    conn.close()
+        rows = conn.execute(
+            "SELECT id, article, store, last_price FROM products WHERE chat_id=?",
+            (chat_id,),
+        ).fetchall()
+        conn.close()
+        if rows:
+            await query.edit_message_text(
+                "Удалено.\n\nНажми чтобы удалить ещё:",
+                reply_markup=products_keyboard(rows),
+            )
+        else:
+            await query.edit_message_text(
+                "Удалено.\nВсе товары удалены.",
+                reply_markup=main_menu_keyboard(),
+            )
 
 
-async def cmd_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Использование: /remove <id>")
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    store = context.user_data.get("add_store")
+    if not store:
         return
-    try:
-        pid = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("ID должен быть числом.")
+
+    chat_id = update.effective_chat.id
+    text = update.message.text.strip()
+
+    if store == "wb":
+        if not text.isdigit():
+            await update.message.reply_text("Артикул WB должен быть числом. Попробуй ещё:")
+            return
+        article = text
+    else:
+        if not text.startswith("http"):
+            await update.message.reply_text("Нужна ссылка на товар. Попробуй ещё:")
+            return
+        article = text
+
+    await update.message.reply_text("Получаю цену...")
+
+    info = get_product(article, store)
+    if not info:
+        await update.message.reply_text("Не удалось получить данные. Проверь правильность.")
         return
+
     conn = get_db()
-    conn.execute("DELETE FROM products WHERE id=?", (pid,))
+    conn.execute(
+        "INSERT INTO products(chat_id, article, store, last_price) VALUES(?, ?, ?, ?)",
+        (chat_id, article, store, info["sale_price"]),
+    )
     conn.commit()
     conn.close()
-    await update.message.reply_text("Удалено.")
+
+    store_name = STORE_NAMES.get(store, store)
+    await update.message.reply_text(
+        f"✅ Добавлено!\n\n"
+        f"📦 {info['name']}\n"
+        f"🏪 {store_name}\n"
+        f"💰 {info['sale_price']:.0f} ₽\n"
+        f"🔗 {info['link']}\n\n"
+        f"Бот будет проверять цену каждые {CHECK_INTERVAL}ч.\n"
+        f"Уведомлю если цена поменяется.",
+        reply_markup=main_menu_keyboard(),
+    )
+
+    context.user_data.pop("add_store", None)
 
 
 async def check_prices(context):
@@ -212,8 +306,19 @@ async def check_prices(context):
         if new_price != last_price:
             diff = new_price - last_price
             store_name = STORE_NAMES.get(store, store)
-            prefix = "ПОДОРОЖАЛ" if diff > 0 else "ПОДЕШЕВЕЛ"
-            msg = f"{prefix}\n{info['name']}\n{store_name} | {article}\n{last_price:.2f} → {new_price:.2f} ({diff:+.2f})\n{info['link']}"
+            if diff > 0:
+                emoji = "🔴"
+                label = f"Подорожал на {abs(diff):.0f} ₽"
+            else:
+                emoji = "🟢"
+                label = f"Подешевел на {abs(diff):.0f} ₽"
+            msg = (
+                f"{emoji} {label}\n\n"
+                f"📦 {info['name']}\n"
+                f"🏪 {store_name}\n"
+                f"💰 {last_price:.0f} → {new_price:.0f} ₽\n"
+                f"🔗 {info['link']}"
+            )
             try:
                 await bot.send_message(chat_id=chat_id, text=msg)
             except Exception as e:
@@ -236,11 +341,8 @@ def run_bot():
     logger.info("PriceBot starting...")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("add_wb", cmd_add_wb))
-    app.add_handler(CommandHandler("add_tim", cmd_add_tim))
-    app.add_handler(CommandHandler("list", cmd_list))
-    app.add_handler(CommandHandler("check", cmd_check))
-    app.add_handler(CommandHandler("remove", cmd_remove))
+    app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(
         check_prices,
         interval=CHECK_INTERVAL * 3600,
