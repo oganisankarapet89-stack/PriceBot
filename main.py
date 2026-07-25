@@ -230,6 +230,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("setinterval_"):
         hours = int(data.split("_")[1])
         set_interval(chat_id, hours)
+        reschedule_jobs(chat_id)
         await query.edit_message_text(
             f"⚙️ Настройки\n\nПроверка цены каждые: **{hours} ч.**",
             reply_markup=settings_keyboard(chat_id),
@@ -382,11 +383,15 @@ def run_flask():
     web.run(host="0.0.0.0", port=port)
 
 
-def reschedule_jobs(app, chat_id=None):
-    import asyncio
+app_ref = None
+
+
+def reschedule_jobs(chat_id=None):
+    if not app_ref:
+        return
 
     async def _do():
-        jobs = app.job_queue.get_jobs_by_name("check_prices_dynamic")
+        jobs = app_ref.job_queue.get_jobs_by_name("check_prices_dynamic")
         for job in jobs:
             job.schedule_removal()
 
@@ -406,24 +411,27 @@ def reschedule_jobs(app, chat_id=None):
             intervals = {2}
 
         for h in intervals:
-            app.job_queue.run_repeating(
+            app_ref.job_queue.run_repeating(
                 check_prices,
                 interval=h * 3600,
                 first=5,
                 name="check_prices_dynamic",
             )
 
+    import asyncio
     loop = asyncio.get_event_loop()
     loop.create_task(_do())
 
 
 def run_bot():
     import asyncio
+    global app_ref
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     init_db()
     logger.info("PriceBot starting...")
     app = Application.builder().token(BOT_TOKEN).build()
+    app_ref = app
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
@@ -431,6 +439,7 @@ def run_bot():
         check_prices,
         interval=2 * 3600,
         first=10,
+        name="check_prices_dynamic",
     )
     logger.info("Bot running!")
 
