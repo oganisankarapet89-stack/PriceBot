@@ -239,50 +239,22 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "test_notify":
-        await query.answer("Проверяю...")
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
-            (chat_id,),
-        ).fetchall()
-        conn.close()
-        if not rows:
-            await query.edit_message_text(
-                "Нет товаров для проверки.\nДобавь через ➕ Добавить товар",
-                reply_markup=main_menu_keyboard(),
-            )
-            return
-        await query.edit_message_text("🔔 Тест: проверяю цены...")
-        import asyncio
-        for r in rows:
-            pid, url, last_price = r["id"], r["url"], r["last_price"]
-            try:
-                info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
-            except Exception as e:
-                await query.message.reply_text(f"❌ Ошибка: {e}")
-                continue
-            if not info:
-                await query.message.reply_text(f"❌ Не удалось: {url[:50]}")
-                continue
-            new_price = info["sale_price"]
-            if last_price > 0 and new_price != last_price:
-                diff = new_price - last_price
-                sym = "+" if diff > 0 else ""
-                msg = f"🔔 Тест\n\n📦 {info['name']}\n💰 {last_price:.0f} → {new_price:.0f} ₽ ({sym}{diff:.0f})\n🔗 {info['link']}"
-            else:
-                msg = f"🔔 Тест\n\n📦 {info['name']}\n💰 {new_price:.0f} ₽\n🔗 {info['link']}"
-            conn = get_db()
-            conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
-            conn.commit()
-            conn.close()
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Назад", callback_data="back")],
-            ])
-            await query.message.reply_text(msg, reply_markup=kb)
-        await query.message.reply_text(
-            f"✅ Тест завершён! Товаров: {len(rows)}",
+        await query.answer("Отправляю тест через 5 минут...")
+        await query.edit_message_text(
+            "🔔 Тестовое уведомление будет отправлено через 5 минут.\n\nПродолжай пользоваться ботом.",
             reply_markup=main_menu_keyboard(),
         )
+        import asyncio
+        async def send_test_later():
+            await asyncio.sleep(300)
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🔔 Тест уведомлений!\n\nЕсли ты это видишь — уведомления работают!",
+                )
+            except Exception as e:
+                logger.error(f"Test notify error: {e}")
+        asyncio.get_event_loop().create_task(send_test_later())
 
     elif data.startswith("remove_"):
         pid = int(data.split("_")[1])
