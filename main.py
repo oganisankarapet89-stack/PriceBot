@@ -1,10 +1,9 @@
 import os
-import sys
 import json
 import sqlite3
 import logging
 import threading
-import requests as req_lib
+import requests
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -19,8 +18,6 @@ DB = "prices.db"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("PriceBot")
 
-STORE_NAMES = {"wb": "Wildberries", "tim": "TIM-Зейслер"}
-
 
 def get_db():
     conn = sqlite3.connect(DB)
@@ -33,135 +30,16 @@ def init_db():
     conn.execute("""CREATE TABLE IF NOT EXISTS products(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id INTEGER NOT NULL,
-        article TEXT NOT NULL,
-        store TEXT NOT NULL DEFAULT 'wb',
+        url TEXT NOT NULL,
         last_price REAL DEFAULT 0
     )""")
     conn.commit()
     conn.close()
 
 
-def _playwright_wb_parse(article):
-    from playwright.sync_api import sync_playwright
-    result = {"name": None, "price": None, "link": None}
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="ru-RU",
-            )
-            page = context.new_page()
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-            detail_data = []
-
-            def on_response(resp):
-                if "__internal/u-card/cards/v4/detail" in resp.url and resp.status == 200:
-                    try:
-                        detail_data.append(resp.json())
-                    except Exception:
-                        pass
-
-            page.on("response", on_response)
-            page.goto(
-                f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
-                timeout=60000,
-                wait_until="networkidle",
-            )
-            page.wait_for_timeout(10000)
-            browser.close()
-
-            if detail_data:
-                product = detail_data[0]["products"][0]
-                sizes = product.get("sizes", [])
-                if sizes:
-                    pr = sizes[0].get("price", {})
-                    sale = pr.get("product", 0)
-                    if sale > 0:
-                        result["name"] = product.get("name", "")
-                        result["price"] = sale / 100
-                        result["link"] = f"https://www.wildberries.ru/catalog/{article}/detail.aspx"
-    except Exception as e:
-        logger.error(f"Playwright WB parse error for {article}: {e}")
-    return result
-
-
-def _playwright_wb_parse_batch(articles):
-    from playwright.sync_api import sync_playwright
-    results = {}
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                viewport={"width": 1920, "height": 1080},
-                locale="ru-RU",
-            )
-            page = context.new_page()
-            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-            for article in articles:
-                result = {"name": None, "price": None, "link": None}
-                try:
-                    detail_data = []
-
-                    def on_response(resp):
-                        if "__internal/u-card/cards/v4/detail" in resp.url and resp.status == 200:
-                            try:
-                                detail_data.append(resp.json())
-                            except Exception:
-                                pass
-
-                    page.on("response", on_response)
-                    page.goto(
-                        f"https://www.wildberries.ru/catalog/{article}/detail.aspx",
-                        timeout=60000,
-                        wait_until="networkidle",
-                    )
-                    page.wait_for_timeout(10000)
-                    page.remove_listener("response", on_response)
-
-                    if detail_data:
-                        product = detail_data[0]["products"][0]
-                        sizes = product.get("sizes", [])
-                        if sizes:
-                            pr = sizes[0].get("price", {})
-                            sale = pr.get("product", 0)
-                            if sale > 0:
-                                result["name"] = product.get("name", "")
-                                result["price"] = sale / 100
-                                result["link"] = f"https://www.wildberries.ru/catalog/{article}/detail.aspx"
-                except Exception as e:
-                    logger.error(f"Playwright WB parse error for {article}: {e}")
-                results[article] = result
-
-            browser.close()
-    except Exception as e:
-        logger.error(f"Playwright batch error: {e}")
-        for article in articles:
-            if article not in results:
-                results[article] = {"name": None, "price": None, "link": None}
-    return results
-
-
-def parse_wb(article):
-    result = _playwright_wb_parse(article)
-    if result["price"]:
-        return result
-    return None
-
-
 def parse_tim(url):
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/html"}
-    r = req_lib.get(url, headers=headers, timeout=20, verify=False)
+    r = requests.get(url, headers=headers, timeout=20, verify=False)
     if r.status_code != 200:
         return None
     import re
@@ -180,20 +58,6 @@ def parse_tim(url):
     return {"name": ld.get("name", "TIM товар"), "sale_price": price, "link": url}
 
 
-def get_product(article, store):
-    try:
-        if store == "wb":
-            result = parse_wb(article)
-            if result and result["price"]:
-                return {"name": result["name"], "sale_price": result["price"], "link": result["link"]}
-            return None
-        elif store == "tim":
-            return parse_tim(article)
-    except Exception as e:
-        logger.error(f"Parse error: {e}")
-    return None
-
-
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -206,21 +70,11 @@ def main_menu_keyboard():
     ])
 
 
-def store_keyboard():
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🟣 Wildberries", callback_data="store_wb"),
-            InlineKeyboardButton("🔵 TIM-Зейслер", callback_data="store_tim"),
-        ],
-    ])
-
-
 def products_keyboard(rows):
     buttons = []
     for r in rows:
-        store_name = STORE_NAMES.get(r["store"], r["store"])
         price = f"{r['last_price']:.0f}₽" if r["last_price"] > 0 else "—"
-        text = f"❌ {r['id']} | {store_name} | {price}"
+        text = f"❌ {r['id']} | {price}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"remove_{r['id']}")])
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
     return InlineKeyboardMarkup(buttons)
@@ -228,7 +82,7 @@ def products_keyboard(rows):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "PriceBot\n\nОтслеживаю цены на WB и TIM-Зейслер.\n"
+        "PriceBot\n\nОтслеживаю цены на TIM-Зейслер.\n"
         "Выбери действие:",
         reply_markup=main_menu_keyboard(),
     )
@@ -247,23 +101,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "add":
-        await query.edit_message_text(
-            "Выбери магазин:",
-            reply_markup=store_keyboard(),
-        )
-
-    elif data == "store_wb":
-        context.user_data["add_store"] = "wb"
-        await query.edit_message_text("Отправь артикул товара с Wildberries\n(число из URL)")
-
-    elif data == "store_tim":
         context.user_data["add_store"] = "tim"
         await query.edit_message_text("Отправь ссылку на товар TIM-Зейслер")
 
     elif data == "list":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, article, store, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -273,13 +117,15 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=main_menu_keyboard(),
             )
             return
-        text = "Твои товары:\nНажми чтобы удалить:\n\n"
-        await query.edit_message_text(text, reply_markup=products_keyboard(rows))
+        await query.edit_message_text(
+            "Твои товары:\nНажми чтобы удалить:\n",
+            reply_markup=products_keyboard(rows),
+        )
 
     elif data == "check":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, article, store, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -288,41 +134,25 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await query.edit_message_text("Проверяю цены...")
 
-        wb_articles = [r["article"] for r in rows if r["store"] == "wb"]
-        wb_results = {}
-        if wb_articles:
-            import asyncio
-            wb_results = await asyncio.get_event_loop().run_in_executor(
-                None, _playwright_wb_parse_batch, wb_articles
-            )
-
+        import asyncio
         for r in rows:
-            pid, article, store, last_price = r["id"], r["article"], r["store"], r["last_price"]
-            if store == "wb":
-                wr = wb_results.get(article, {})
-                info = {"name": wr.get("name"), "sale_price": wr.get("price"), "link": wr.get("link")} if wr.get("price") else None
-            else:
-                info = await asyncio.get_event_loop().run_in_executor(
-                    None, get_product, article, store
-                )
+            pid, url, last_price = r["id"], r["url"], r["last_price"]
+            info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
             if not info:
-                await query.message.reply_text(f"❌ {article} — ошибка")
+                await query.message.reply_text(f"❌ Ошибка: {url[:50]}")
                 continue
             new_price = info["sale_price"]
-            store_name = STORE_NAMES.get(store, store)
             if last_price > 0 and new_price != last_price:
                 diff = new_price - last_price
                 sym = "+" if diff > 0 else ""
                 msg = (
                     f"📦 {info['name']}\n"
-                    f"🏪 {store_name}\n"
                     f"💰 {last_price:.0f} → {new_price:.0f} ₽ ({sym}{diff:.0f})\n"
                     f"🔗 {info['link']}"
                 )
             else:
                 msg = (
                     f"📦 {info['name']}\n"
-                    f"🏪 {store_name}\n"
                     f"💰 {new_price:.0f} ₽ — без изменений\n"
                     f"🔗 {info['link']}"
                 )
@@ -338,7 +168,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.execute("DELETE FROM products WHERE id=?", (pid,))
         conn.commit()
         rows = conn.execute(
-            "SELECT id, article, store, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -355,54 +185,36 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    store = context.user_data.get("add_store")
-    if not store:
+    if not context.user_data.get("add_store"):
         return
 
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
 
-    if store == "wb":
-        if not text.isdigit():
-            await update.message.reply_text("Артикул WB должен быть числом. Попробуй ещё:")
-            return
-        article = text
-    else:
-        if not text.startswith("http"):
-            await update.message.reply_text("Нужна ссылка на товар. Попробуй ещё:")
-            return
-        article = text
+    if not text.startswith("http"):
+        await update.message.reply_text("Нужна ссылка на товар. Попробуй ещё:")
+        return
 
     await update.message.reply_text("Получаю цену...")
 
     import asyncio
-    if store == "wb":
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, _playwright_wb_parse, article
-        )
-        info = {"name": result["name"], "sale_price": result["price"], "link": result["link"]} if result.get("price") else None
-    else:
-        info = await asyncio.get_event_loop().run_in_executor(
-            None, get_product, article, store
-        )
+    info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, text)
 
     if not info:
-        await update.message.reply_text("Не удалось получить данные. Проверь правильность.")
+        await update.message.reply_text("Не удалось получить данные. Проверь ссылку.")
         return
 
     conn = get_db()
     conn.execute(
-        "INSERT INTO products(chat_id, article, store, last_price) VALUES(?, ?, ?, ?)",
-        (chat_id, article, store, info["sale_price"]),
+        "INSERT INTO products(chat_id, url, last_price) VALUES(?, ?, ?)",
+        (chat_id, text, info["sale_price"]),
     )
     conn.commit()
     conn.close()
 
-    store_name = STORE_NAMES.get(store, store)
     await update.message.reply_text(
         f"✅ Добавлено!\n\n"
         f"📦 {info['name']}\n"
-        f"🏪 {store_name}\n"
         f"💰 {info['sale_price']:.0f} ₽\n"
         f"🔗 {info['link']}\n\n"
         f"Бот будет проверять цену каждые {CHECK_INTERVAL}ч.\n"
@@ -416,32 +228,16 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def check_prices(context):
     bot = context.bot
     conn = get_db()
-    rows = conn.execute("SELECT id, chat_id, article, store, last_price FROM products").fetchall()
+    rows = conn.execute("SELECT id, chat_id, url, last_price FROM products").fetchall()
     if not rows:
         conn.close()
         return
     logger.info(f"Checking {len(rows)} products...")
 
     import asyncio
-
-    wb_rows = [r for r in rows if r["store"] == "wb"]
-    tim_rows = [r for r in rows if r["store"] == "tim"]
-
-    wb_results = {}
-    if wb_articles := [r["article"] for r in wb_rows]:
-        wb_results = await asyncio.get_event_loop().run_in_executor(
-            None, _playwright_wb_parse_batch, wb_articles
-        )
-
     for r in rows:
-        pid, chat_id, article, store, last_price = r["id"], r["chat_id"], r["article"], r["store"], r["last_price"]
-        if store == "wb":
-            wr = wb_results.get(article, {})
-            info = {"name": wr.get("name"), "sale_price": wr.get("price"), "link": wr.get("link")} if wr.get("price") else None
-        else:
-            info = await asyncio.get_event_loop().run_in_executor(
-                None, get_product, article, store
-            )
+        pid, chat_id, url, last_price = r["id"], r["chat_id"], r["url"], r["last_price"]
+        info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
         if not info:
             continue
         new_price = info["sale_price"]
@@ -451,7 +247,6 @@ async def check_prices(context):
             continue
         if new_price != last_price:
             diff = new_price - last_price
-            store_name = STORE_NAMES.get(store, store)
             if diff > 0:
                 emoji = "🔴"
                 label = f"Подорожал на {abs(diff):.0f} ₽"
@@ -461,7 +256,6 @@ async def check_prices(context):
             msg = (
                 f"{emoji} {label}\n\n"
                 f"📦 {info['name']}\n"
-                f"🏪 {store_name}\n"
                 f"💰 {last_price:.0f} → {new_price:.0f} ₽\n"
                 f"🔗 {info['link']}"
             )
