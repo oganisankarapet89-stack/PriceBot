@@ -226,9 +226,15 @@ def check_prices(app):
     conn.close()
 
 
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    web.run(host="0.0.0.0", port=port)
+
+
 def run_bot():
     import asyncio
-    asyncio.set_event_loop(asyncio.new_event_loop())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     init_db()
     logger.info("PriceBot starting...")
     app = Application.builder().token(BOT_TOKEN).build()
@@ -244,7 +250,14 @@ def run_bot():
         first=10,
     )
     logger.info("Bot running!")
-    app.run_polling(drop_pending_updates=True)
+
+    async def _run():
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        await asyncio.Event().wait()
+
+    loop.run_until_complete(_run())
 
 
 web = Flask(__name__)
@@ -262,6 +275,5 @@ def health():
 
 if __name__ == "__main__":
     init_db()
-    threading.Thread(target=run_bot, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    web.run(host="0.0.0.0", port=port)
+    threading.Thread(target=run_flask, daemon=True).start()
+    run_bot()
