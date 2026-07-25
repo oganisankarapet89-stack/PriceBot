@@ -227,6 +227,8 @@ def check_prices(app):
 
 
 def run_bot():
+    import asyncio
+    asyncio.set_event_loop(asyncio.new_event_loop())
     init_db()
     logger.info("PriceBot starting...")
     app = Application.builder().token(BOT_TOKEN).build()
