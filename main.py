@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8871269578:AAEpCKDtZIbcQzgnPWjvw1P4vekwL1FVH28")
-CHECK_INTERVAL = 6
+CHECK_INTERVAL = 2
 DB = "prices.db"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
