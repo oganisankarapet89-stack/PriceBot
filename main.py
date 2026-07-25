@@ -30,12 +30,17 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         chat_id INTEGER NOT NULL,
         url TEXT NOT NULL,
+        name TEXT DEFAULT '',
         last_price REAL DEFAULT 0
     )""")
     conn.execute("""CREATE TABLE IF NOT EXISTS settings(
         chat_id INTEGER PRIMARY KEY,
         interval_hours INTEGER DEFAULT 2
     )""")
+    try:
+        conn.execute("ALTER TABLE products ADD COLUMN name TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -112,7 +117,8 @@ def products_keyboard(rows):
     buttons = []
     for r in rows:
         price = f"{r['last_price']:.0f}₽" if r["last_price"] > 0 else "—"
-        text = f"❌ {r['id']} | {price}"
+        name = r["name"][:30] if r["name"] else f"#{r['id']}"
+        text = f"❌ {name} — {price}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"remove_{r['id']}")])
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
     return InlineKeyboardMarkup(buttons)
@@ -151,7 +157,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "list":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, url, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -172,7 +178,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "check":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, url, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -236,7 +242,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.execute("DELETE FROM products WHERE id=?", (pid,))
         conn.commit()
         rows = conn.execute(
-            "SELECT id, url, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -283,8 +289,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = get_db()
     conn.execute(
-        "INSERT INTO products(chat_id, url, last_price) VALUES(?, ?, ?)",
-        (chat_id, text, info["sale_price"]),
+        "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
+        (chat_id, text, info["name"], info["sale_price"]),
     )
     conn.commit()
     conn.close()
@@ -304,7 +310,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def check_prices(context):
     bot = context.bot
     conn = get_db()
-    rows = conn.execute("SELECT p.id, p.chat_id, p.url, p.last_price, s.interval_hours FROM products p LEFT JOIN settings s ON p.chat_id = s.chat_id").fetchall()
+    rows = conn.execute("SELECT p.id, p.chat_id, p.url, p.name, p.last_price, s.interval_hours FROM products p LEFT JOIN settings s ON p.chat_id = s.chat_id").fetchall()
     if not rows:
         conn.close()
         return
@@ -318,7 +324,7 @@ async def check_prices(context):
             continue
         new_price = info["sale_price"]
         if last_price == 0:
-            conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
+            conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
             conn.commit()
             continue
         if new_price != last_price:
@@ -339,7 +345,7 @@ async def check_prices(context):
                 await bot.send_message(chat_id=chat_id, text=msg)
             except Exception as e:
                 logger.error(f"Send error: {e}")
-            conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
+            conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
             conn.commit()
     conn.close()
 
