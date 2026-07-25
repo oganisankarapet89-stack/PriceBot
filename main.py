@@ -191,7 +191,8 @@ async def cmd_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Удалено.")
 
 
-def check_prices(app):
+async def check_prices(context):
+    bot = context.bot
     conn = get_db()
     rows = conn.execute("SELECT id, chat_id, article, store, last_price FROM products").fetchall()
     if not rows:
@@ -214,11 +215,7 @@ def check_prices(app):
             prefix = "ПОДОРОЖАЛ" if diff > 0 else "ПОДЕШЕВЕЛ"
             msg = f"{prefix}\n{info['name']}\n{store_name} | {article}\n{last_price:.2f} → {new_price:.2f} ({diff:+.2f})\n{info['link']}"
             try:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(app.bot.send_message(chat_id=chat_id, text=msg))
-                loop.close()
+                await bot.send_message(chat_id=chat_id, text=msg)
             except Exception as e:
                 logger.error(f"Send error: {e}")
             conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
@@ -245,7 +242,7 @@ def run_bot():
     app.add_handler(CommandHandler("check", cmd_check))
     app.add_handler(CommandHandler("remove", cmd_remove))
     app.job_queue.run_repeating(
-        lambda ctx: check_prices(ctx.application),
+        check_prices,
         interval=CHECK_INTERVAL * 3600,
         first=10,
     )
