@@ -1,9 +1,7 @@
 services:
   - type: web
     name: pricebot
-    runtime: python
-    buildCommand: pip install -r requirements.txt && playwright install chromium && playwright install-deps chromium
-    startCommand: python main.py
+    dockerfilePath: Dockerfile
     envVars:
       - key: BOT_TOKEN
         sync: false
