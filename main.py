@@ -12,7 +12,6 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8871269578:AAEpCKDtZIbcQzgnPWjvw1P4vekwL1FVH28")
-CHECK_INTERVAL = 2
 DB = "prices.db"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -33,6 +32,27 @@ def init_db():
         url TEXT NOT NULL,
         last_price REAL DEFAULT 0
     )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS settings(
+        chat_id INTEGER PRIMARY KEY,
+        interval_hours INTEGER DEFAULT 2
+    )""")
+    conn.commit()
+    conn.close()
+
+
+def get_interval(chat_id):
+    conn = get_db()
+    row = conn.execute("SELECT interval_hours FROM settings WHERE chat_id=?", (chat_id,)).fetchone()
+    conn.close()
+    return row["interval_hours"] if row else 2
+
+
+def set_interval(chat_id, hours):
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO settings(chat_id, interval_hours) VALUES(?, ?)",
+        (chat_id, hours),
+    )
     conn.commit()
     conn.close()
 
@@ -66,8 +86,26 @@ def main_menu_keyboard():
         ],
         [
             InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
+            InlineKeyboardButton("⚙️ Настройки", callback_data="settings"),
         ],
     ])
+
+
+def settings_keyboard(chat_id):
+    hours = get_interval(chat_id)
+    options = [1, 2, 3, 4, 6, 8, 12, 24]
+    buttons = []
+    row = []
+    for h in options:
+        label = f"{'✅ ' if h == hours else ''}{h}ч"
+        row.append(InlineKeyboardButton(label, callback_data=f"setinterval_{h}"))
+        if len(row) == 4:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
+    return InlineKeyboardMarkup(buttons)
 
 
 def products_keyboard(rows):
@@ -82,7 +120,7 @@ def products_keyboard(rows):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "PriceBot\n\nОтслеживаю цены на TIM-Зейслер.\n"
+        "PriceBot — отслеживаю цены на TIM-Зейслер\n\n"
         "Выбери действие:",
         reply_markup=main_menu_keyboard(),
     )
@@ -96,13 +134,19 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "back":
         await query.edit_message_text(
-            "PriceBot\n\nВыбери действие:",
+            "PriceBot — отслеживаю цены на TIM-Зейслер\n\nВыбери действие:",
             reply_markup=main_menu_keyboard(),
         )
 
     elif data == "add":
         context.user_data["add_store"] = "tim"
-        await query.edit_message_text("Отправь ссылку на товар TIM-Зейслер")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+        ])
+        await query.edit_message_text(
+            "Отправь ссылку на товар с tim-zeissler.ru",
+            reply_markup=kb,
+        )
 
     elif data == "list":
         conn = get_db()
@@ -112,9 +156,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).fetchall()
         conn.close()
         if not rows:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+            ])
             await query.edit_message_text(
                 "Нет товаров.\n\nНажми «Добавить товар»:",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=kb,
             )
             return
         await query.edit_message_text(
@@ -139,7 +186,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pid, url, last_price = r["id"], r["url"], r["last_price"]
             info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
             if not info:
-                await query.message.reply_text(f"❌ Ошибка: {url[:50]}")
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+                ])
+                await query.message.reply_text(f"❌ Ошибка: {url[:60]}", reply_markup=kb)
                 continue
             new_price = info["sale_price"]
             if last_price > 0 and new_price != last_price:
@@ -160,7 +210,25 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.execute("UPDATE products SET last_price=? WHERE id=?", (new_price, pid))
             conn.commit()
             conn.close()
-            await query.message.reply_text(msg)
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+            ])
+            await query.message.reply_text(msg, reply_markup=kb)
+
+    elif data == "settings":
+        await query.edit_message_text(
+            "⚙️ Настройки\n\nПроверка цены каждые:",
+            reply_markup=settings_keyboard(chat_id),
+        )
+
+    elif data.startswith("setinterval_"):
+        hours = int(data.split("_")[1])
+        set_interval(chat_id, hours)
+        await query.edit_message_text(
+            f"⚙️ Настройки\n\nПроверка цены каждые: **{hours} ч.**",
+            reply_markup=settings_keyboard(chat_id),
+            parse_mode="Markdown",
+        )
 
     elif data.startswith("remove_"):
         pid = int(data.split("_")[1])
@@ -178,9 +246,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=products_keyboard(rows),
             )
         else:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+            ])
             await query.edit_message_text(
                 "Удалено.\nВсе товары удалены.",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=kb,
             )
 
 
@@ -192,7 +263,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if not text.startswith("http"):
-        await update.message.reply_text("Нужна ссылка на товар. Попробуй ещё:")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+        ])
+        await update.message.reply_text("Нужна ссылка на товар. Попробуй ещё:", reply_markup=kb)
         return
 
     await update.message.reply_text("Получаю цену...")
@@ -201,7 +275,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, text)
 
     if not info:
-        await update.message.reply_text("Не удалось получить данные. Проверь ссылку.")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+        ])
+        await update.message.reply_text("Не удалось получить данные. Проверь ссылку.", reply_markup=kb)
         return
 
     conn = get_db()
@@ -217,7 +294,6 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 {info['name']}\n"
         f"💰 {info['sale_price']:.0f} ₽\n"
         f"🔗 {info['link']}\n\n"
-        f"Бот будет проверять цену каждые {CHECK_INTERVAL}ч.\n"
         f"Уведомлю если цена поменяется.",
         reply_markup=main_menu_keyboard(),
     )
@@ -228,7 +304,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def check_prices(context):
     bot = context.bot
     conn = get_db()
-    rows = conn.execute("SELECT id, chat_id, url, last_price FROM products").fetchall()
+    rows = conn.execute("SELECT p.id, p.chat_id, p.url, p.last_price, s.interval_hours FROM products p LEFT JOIN settings s ON p.chat_id = s.chat_id").fetchall()
     if not rows:
         conn.close()
         return
@@ -273,6 +349,41 @@ def run_flask():
     web.run(host="0.0.0.0", port=port)
 
 
+def reschedule_jobs(app, chat_id=None):
+    import asyncio
+
+    async def _do():
+        jobs = app.job_queue.get_jobs_by_name("check_prices_dynamic")
+        for job in jobs:
+            job.schedule_removal()
+
+        conn = get_db()
+        if chat_id:
+            rows = conn.execute(
+                "SELECT DISTINCT interval_hours FROM settings WHERE chat_id=?", (chat_id,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT DISTINCT interval_hours FROM settings").fetchall()
+        conn.close()
+
+        intervals = set()
+        for r in rows:
+            intervals.add(r["interval_hours"])
+        if not intervals:
+            intervals = {2}
+
+        for h in intervals:
+            app.job_queue.run_repeating(
+                check_prices,
+                interval=h * 3600,
+                first=5,
+                name="check_prices_dynamic",
+            )
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(_do())
+
+
 def run_bot():
     import asyncio
     loop = asyncio.new_event_loop()
@@ -285,7 +396,7 @@ def run_bot():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(
         check_prices,
-        interval=CHECK_INTERVAL * 3600,
+        interval=2 * 3600,
         first=10,
     )
     logger.info("Bot running!")
