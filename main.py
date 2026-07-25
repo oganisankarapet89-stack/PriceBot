@@ -9,7 +9,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8967925366:AAGXSEa-P8_R2eNgZruIOdHEE8uqNHE-wTE")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8871269578:AAEpCKDtZIbcQzgnPWjvw1P4vekwL1FVH28")
 CHECK_INTERVAL = 6
 DB = "prices.db"
 
