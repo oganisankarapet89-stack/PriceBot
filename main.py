@@ -317,36 +317,63 @@ async def check_prices(context):
     logger.info(f"Checking {len(rows)} products...")
 
     import asyncio
+    by_chat = {}
     for r in rows:
-        pid, chat_id, url, last_price = r["id"], r["chat_id"], r["url"], r["last_price"]
-        info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
-        if not info:
-            continue
-        new_price = info["sale_price"]
-        if last_price == 0:
-            conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
-            conn.commit()
-            continue
-        if new_price != last_price:
-            diff = new_price - last_price
-            if diff > 0:
-                emoji = "🔴"
-                label = f"Подорожал на {abs(diff):.0f} ₽"
-            else:
-                emoji = "🟢"
-                label = f"Подешевел на {abs(diff):.0f} ₽"
-            msg = (
-                f"{emoji} {label}\n\n"
-                f"📦 {info['name']}\n"
-                f"💰 {last_price:.0f} → {new_price:.0f} ₽\n"
-                f"🔗 {info['link']}"
-            )
+        cid = r["chat_id"]
+        if cid not in by_chat:
+            by_chat[cid] = []
+        by_chat[cid].append(r)
+
+    for chat_id, products in by_chat.items():
+        errors = []
+        for r in products:
+            pid, url, last_price = r["id"], r["url"], r["last_price"]
             try:
-                await bot.send_message(chat_id=chat_id, text=msg)
+                info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
             except Exception as e:
-                logger.error(f"Send error: {e}")
+                errors.append(f"❌ #{r['id']}: {e}")
+                continue
+            if not info:
+                errors.append(f"❌ Не удалось: {url[:50]}")
+                continue
+            new_price = info["sale_price"]
+            if last_price == 0:
+                conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
+                conn.commit()
+                continue
+            if new_price != last_price:
+                diff = new_price - last_price
+                if diff > 0:
+                    emoji = "🔴"
+                    label = f"Подорожал на {abs(diff):.0f} ₽"
+                else:
+                    emoji = "🟢"
+                    label = f"Подешевел на {abs(diff):.0f} ₽"
+                msg = (
+                    f"{emoji} {label}\n\n"
+                    f"📦 {info['name']}\n"
+                    f"💰 {last_price:.0f} → {new_price:.0f} ₽\n"
+                    f"🔗 {info['link']}"
+                )
+                try:
+                    await bot.send_message(chat_id=chat_id, text=msg)
+                except Exception as e:
+                    logger.error(f"Send error: {e}")
             conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
             conn.commit()
+
+        summary_lines = ["📊 Сводка:\n"]
+        refreshed = conn.execute("SELECT id, name, last_price FROM products WHERE chat_id=?", (chat_id,)).fetchall()
+        for p in refreshed:
+            price_str = f"{p['last_price']:.0f} ₽" if p["last_price"] > 0 else "—"
+            summary_lines.append(f"#{p['id']} {p['name'][:35]}\n  💰 {price_str}")
+        try:
+            await bot.send_message(chat_id=chat_id, text="\n".join(summary_lines))
+            if errors:
+                await bot.send_message(chat_id=chat_id, text="⚠️ Проблемы:\n" + "\n".join(errors))
+        except Exception as e:
+            logger.error(f"Send error: {e}")
+
     conn.close()
 
 
