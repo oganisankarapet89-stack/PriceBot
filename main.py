@@ -139,7 +139,7 @@ def settings_keyboard(chat_id):
 def products_keyboard(rows):
     buttons = []
     for r in rows:
-        price = f"{r['last_price']:.0f}₽" if r["last_price"] > 0 else "—"
+        price = f"{r['last_price']:.2f}₽" if r["last_price"] > 0 else "—"
         name = r["name"][:30] if r["name"] else f"#{r['id']}"
         text = f"❌ {name} — {price}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"remove_{r['id']}")])
@@ -163,7 +163,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "back":
         await query.edit_message_text(
-            "PriceBot — отслеживаю цены на TIM-Зейслер\n\nВыбери действие:",
+            "PriceBot — отслеживаю цены на Senstroy\n\nВыбери действие:",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -173,7 +173,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
         await query.edit_message_text(
-            "Отправь ссылку на товар с tim-zeissler.ru",
+            "Отправь ссылку на товар с senstroy.ru",
             reply_markup=kb,
         )
 
@@ -226,13 +226,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 sym = "+" if diff > 0 else ""
                 msg = (
                     f"📦 {info['name']}\n"
-                    f"💰 {last_price:.0f} → {new_price:.0f} ₽ ({sym}{diff:.0f})\n"
+                    f"💰 {last_price:.2f} → {new_price:.2f} ₽ ({sym}{diff:.2f})\n"
                     f"🔗 {info['link']}"
                 )
             else:
                 msg = (
                     f"📦 {info['name']}\n"
-                    f"💰 {new_price:.0f} ₽ — без изменений\n"
+                    f"💰 {new_price:.2f} ₽ — без изменений\n"
                     f"🔗 {info['link']}"
                 )
             conn = get_db()
@@ -340,7 +340,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"✅ Добавлено!\n\n"
         f"📦 {info['name']}\n"
-        f"💰 {info['sale_price']:.0f} ₽\n"
+        f"💰 {info['sale_price']:.2f} ₽\n"
         f"🔗 {info['link']}\n\n"
         f"Уведомлю если цена поменяется.",
         reply_markup=main_menu_keyboard(),
@@ -387,14 +387,14 @@ async def check_prices(context):
                 diff = new_price - last_price
                 if diff > 0:
                     emoji = "🔴"
-                    label = f"Подорожал на {abs(diff):.0f} ₽"
+                    label = f"Подорожал на {abs(diff):.2f} ₽"
                 else:
                     emoji = "🟢"
-                    label = f"Подешевел на {abs(diff):.0f} ₽"
+                    label = f"Подешевел на {abs(diff):.2f} ₽"
                 msg = (
                     f"{emoji} {label}\n\n"
                     f"📦 {info['name']}\n"
-                    f"💰 {last_price:.0f} → {new_price:.0f} ₽\n"
+                    f"💰 {last_price:.2f} → {new_price:.2f} ₽\n"
                     f"🔗 {info['link']}"
                 )
                 try:
@@ -407,7 +407,7 @@ async def check_prices(context):
         summary_lines = ["📊 Сводка:\n"]
         refreshed = conn.execute("SELECT id, name, last_price FROM products WHERE chat_id=?", (chat_id,)).fetchall()
         for p in refreshed:
-            price_str = f"{p['last_price']:.0f} ₽" if p["last_price"] > 0 else "—"
+            price_str = f"{p['last_price']:.2f} ₽" if p["last_price"] > 0 else "—"
             summary_lines.append(f"#{p['id']} {p['name'][:35]}\n  💰 {price_str}")
         try:
             await bot.send_message(chat_id=chat_id, text="\n".join(summary_lines))
