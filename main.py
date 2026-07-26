@@ -207,8 +207,10 @@ def products_keyboard(rows):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "PriceBot — отслеживаю цены на Senstroy\n\n"
+        "🏷 <b>PriceBot</b>\n"
+        "Отслеживаю цены на Senstroy\n\n"
         "Выбери действие:",
+        parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -221,7 +223,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "back":
         await query.edit_message_text(
-            "PriceBot — отслеживаю цены на Senstroy\n\nВыбери действие:",
+            "🏷 <b>PriceBot</b>\n"
+            "Отслеживаю цены на Senstroy\n\n"
+            "Выбери действие:",
+            parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -231,7 +236,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
         await query.edit_message_text(
-            "Отправь артикул товара (например: HJS066B, 4306)",
+            "📝 <b>Добавление товара</b>\n\n"
+            "Отправь артикул товара\n"
+            "<i>(например: HJS066B, ZTI.613.001515N, 4306)</i>",
+            parse_mode="HTML",
             reply_markup=kb,
         )
 
@@ -247,12 +255,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
             ])
             await query.edit_message_text(
-                "Нет товаров.\n\nНажми «Добавить товар»:",
+                "📭 <b>Мои товары</b>\n\n"
+                "Пока пусто.\n"
+                "Нажми «Добавить товар»:",
+                parse_mode="HTML",
                 reply_markup=kb,
             )
             return
         await query.edit_message_text(
-            "Твои товары:\nНажми чтобы удалить:\n",
+            "📦 <b>Мои товары</b>\n"
+            "Нажми чтобы удалить:",
+            parse_mode="HTML",
             reply_markup=products_keyboard(rows),
         )
 
@@ -264,9 +277,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ).fetchall()
         conn.close()
         if not rows:
-            await query.edit_message_text("Нет товаров.", reply_markup=main_menu_keyboard())
+            await query.edit_message_text("📭 Нет товаров.", reply_markup=main_menu_keyboard())
             return
-        await query.edit_message_text("Проверяю цены...")
+        await query.edit_message_text("🔍 <b>Проверяю цены...</b>", parse_mode="HTML")
 
         import asyncio
         for r in rows:
@@ -276,20 +289,20 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kb = InlineKeyboardMarkup([
                     [InlineKeyboardButton("◀️ Назад", callback_data="back")],
                 ])
-                await query.message.reply_text(f"❌ Ошибка: {url[:60]}", reply_markup=kb)
+                await query.message.reply_text(f"⚠️ <b>Ошибка</b>\n<code>{url[:60]}</code>", parse_mode="HTML", reply_markup=kb)
                 continue
             new_price = info["sale_price"]
             if last_price > 0 and new_price != last_price:
                 diff = new_price - last_price
                 sym = "+" if diff > 0 else ""
                 msg = (
-                    f"📦 {info['name']}\n"
-                    f"💰 {last_price:.2f} → {new_price:.2f} ₽ ({sym}{diff:.2f})\n"
+                    f"📦 <b>{info['name']}</b>\n"
+                    f"💰 {last_price:.2f} → {new_price:.2f} ₽ (<b>{sym}{diff:.2f}</b>)\n"
                     f"🔗 {info['link']}"
                 )
             else:
                 msg = (
-                    f"📦 {info['name']}\n"
+                    f"📦 <b>{info['name']}</b>\n"
                     f"💰 {new_price:.2f} ₽ — без изменений\n"
                     f"🔗 {info['link']}"
                 )
@@ -300,11 +313,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
             ])
-            await query.message.reply_text(msg, reply_markup=kb)
+            await query.message.reply_text(msg, parse_mode="HTML", reply_markup=kb)
 
     elif data == "settings":
         await query.edit_message_text(
-            "⚙️ Настройки\n\nПроверка цены каждые:",
+            "⚙️ <b>Настройки</b>\n\n"
+            "Проверка цены каждые:",
+            parse_mode="HTML",
             reply_markup=settings_keyboard(chat_id),
         )
 
@@ -330,7 +345,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text="🔔 Тест уведомлений!\n\nЕсли ты это видишь — уведомления работают!",
+                    text="🔔 <b>Тест уведомлений!</b>\n\nЕсли ты это видишь — уведомления работают.",
+                    parse_mode="HTML",
                 )
             except Exception as e:
                 logger.error(f"Test notify error: {e}")
@@ -348,7 +364,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         if rows:
             await query.edit_message_text(
-                "Удалено.\n\nНажми чтобы удалить ещё:",
+                "✅ Удалено.\n\nНажми чтобы удалить ещё:",
+                parse_mode="HTML",
                 reply_markup=products_keyboard(rows),
             )
         else:
@@ -356,7 +373,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
             ])
             await query.edit_message_text(
-                "Удалено.\nВсе товары удалены.",
+                "✅ Удалено.\nВсе товары удалены.",
+                parse_mode="HTML",
                 reply_markup=kb,
             )
 
@@ -374,17 +392,25 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
-        await update.message.reply_text("Артикул должен содержать только буквы, цифры и точки. Попробуй ещё:", reply_markup=kb)
+        await update.message.reply_text(
+            "⚠️ Артикул должен содержать только <b>буквы, цифры и точки</b>. Попробуй ещё:",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
         return
 
-    await update.message.reply_text("Ищу по артикулу...")
+    await update.message.reply_text("🔍 <b>Ищу по артикулу...</b>", parse_mode="HTML")
     results = await asyncio.get_event_loop().run_in_executor(None, search_senstroy, text)
 
     if not results:
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
-        await update.message.reply_text("Ничего не найдено. Попробуй другой артикул.", reply_markup=kb)
+        await update.message.reply_text(
+            "😕 <b>Ничего не найдено</b>\nПопробуй другой артикул.",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
         return
 
     if len(results) == 1:
@@ -397,11 +423,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         await update.message.reply_text(
-            f"✅ Добавлено!\n\n"
-            f"📦 {info['name']}\n"
+            f"✅ <b>Добавлено!</b>\n\n"
+            f"📦 <b>{info['name']}</b>\n"
             f"💰 {info['sale_price']:.2f} ₽\n"
             f"🔗 {info['link']}\n\n"
             f"Уведомлю если цена поменяется.",
+            parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
         )
         context.user_data.pop("add_store", None)
@@ -421,11 +448,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = []
     for r in results:
         price_str = f"{r['sale_price']:.2f} ₽" if r["sale_price"] > 0 else "—"
-        lines.append(f"📦 {r['name']}\n💰 {price_str}")
+        lines.append(f"📦 <b>{r['name']}</b>\n💰 {price_str}")
     summary = "\n\n".join(lines)
 
     await update.message.reply_text(
-        f"✅ Добавлено {len(results)} товаров!\n\n{summary}\n\nУведомлю если цена поменяется.",
+        f"✅ <b>Добавлено {len(results)} товаров!</b>\n\n{summary}\n\n"
+        f"Уведомлю если цена поменяется.",
+        parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -473,27 +502,27 @@ async def check_prices(context):
                     emoji = "🟢"
                     label = f"Подешевел на {abs(diff):.2f} ₽"
                 msg = (
-                    f"{emoji} {label}\n\n"
-                    f"📦 {info['name']}\n"
+                    f"{emoji} <b>{label}</b>\n\n"
+                    f"📦 <b>{info['name']}</b>\n"
                     f"💰 {last_price:.2f} → {new_price:.2f} ₽\n"
                     f"🔗 {info['link']}"
                 )
                 try:
-                    await bot.send_message(chat_id=chat_id, text=msg)
+                    await bot.send_message(chat_id=chat_id, text=msg, parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"Send error: {e}")
             conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
             conn.commit()
 
-        summary_lines = ["📊 Сводка:\n"]
+        summary_lines = ["📊 <b>Сводка:</b>\n"]
         refreshed = conn.execute("SELECT id, name, last_price FROM products WHERE chat_id=?", (chat_id,)).fetchall()
         for p in refreshed:
             price_str = f"{p['last_price']:.2f} ₽" if p["last_price"] > 0 else "—"
-            summary_lines.append(f"#{p['id']} {p['name'][:35]}\n  💰 {price_str}")
+            summary_lines.append(f"• <b>{p['name'][:35]}</b>  💰 {price_str}")
         try:
-            await bot.send_message(chat_id=chat_id, text="\n".join(summary_lines))
+            await bot.send_message(chat_id=chat_id, text="\n".join(summary_lines), parse_mode="HTML")
             if errors:
-                await bot.send_message(chat_id=chat_id, text="⚠️ Проблемы:\n" + "\n".join(errors))
+                await bot.send_message(chat_id=chat_id, text="⚠️ <b>Проблемы:</b>\n" + "\n".join(errors), parse_mode="HTML")
         except Exception as e:
             logger.error(f"Send error: {e}")
 
