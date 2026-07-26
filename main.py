@@ -207,7 +207,7 @@ def products_keyboard(rows):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🏷 <b>PriceBot</b>\n"
+        "🏷 <b>PRICEBOT</b>\n"
         "Отслеживаю цены на Senstroy\n\n"
         "Выбери действие:",
         parse_mode="HTML",
@@ -223,7 +223,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "back":
         await query.edit_message_text(
-            "🏷 <b>PriceBot</b>\n"
+            "🏷 <b>PRICEBOT</b>\n"
             "Отслеживаю цены на Senstroy\n\n"
             "Выбери действие:",
             parse_mode="HTML",
