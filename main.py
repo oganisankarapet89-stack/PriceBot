@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import sqlite3
 import logging
@@ -105,6 +106,53 @@ def parse_senstroy(url):
     return {"name": name, "sale_price": price, "link": url}
 
 
+def search_senstroy(article):
+    import re
+    import html as html_mod
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+    }
+    url = f"https://senstroy.ru/catalog/?q={article}"
+    r = requests.get(url, headers=headers, timeout=20, verify=False)
+    if r.status_code != 200:
+        return []
+    html = r.text
+
+    results = []
+    blocks = re.split(r'item_block\s+"', html)
+
+    for block in blocks[1:]:
+        link_m = re.search(r'<a\s+href="(/catalog/[^"]+)"\s+class="dark_link\s+js-notice-block__title[^"]*"[^>]*><span>([^<]+)</span>', block)
+        if not link_m:
+            link_m = re.search(r'<a\s+href="(/catalog/[^"]+)"\s+class="dark_link[^"]*"[^>]*><span>([^<]+)</span>', block)
+        if not link_m:
+            continue
+
+        href, title = link_m.group(1), link_m.group(2)
+        full_url = "https://senstroy.ru" + href
+
+        price = 0
+        p = re.search(r'data-value="([\d.]+)"', block)
+        if p:
+            price = float(p.group(1))
+        if not price:
+            p = re.search(r'class="price_value[^"]*"[^>]*>([\d.,\s]+)', block)
+            if p:
+                price = float(p.group(1).replace("\xa0", "").replace(" ", "").replace(",", ""))
+
+        if any(r["link"] == full_url for r in results):
+            continue
+        results.append({
+            "name": html_mod.unescape(title.strip()),
+            "sale_price": price / 2 if price else 0,
+            "link": full_url,
+        })
+
+    return results[:5]
+
+
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -168,12 +216,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "add":
-        context.user_data["add_store"] = "tim"
+        context.user_data["add_store"] = "senstroy"
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
         await query.edit_message_text(
-            "Отправь ссылку на товар с senstroy.ru",
+            "Отправь артикул товара (например: HJS066B, 4306)",
             reply_markup=kb,
         )
 
@@ -278,6 +326,30 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Test notify error: {e}")
         asyncio.get_event_loop().create_task(send_test_later())
 
+    elif data.startswith("sel_"):
+        idx = int(data.split("_")[1])
+        results = context.user_data.get("search_results", [])
+        if idx < 0 or idx >= len(results):
+            return
+        info = results[idx]
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
+            (chat_id, info["link"], info["name"], info["sale_price"]),
+        )
+        conn.commit()
+        conn.close()
+        context.user_data.pop("search_results", None)
+        context.user_data.pop("add_store", None)
+        await query.edit_message_text(
+            f"✅ Добавлено!\n\n"
+            f"📦 {info['name']}\n"
+            f"💰 {info['sale_price']:.2f} ₽\n"
+            f"🔗 {info['link']}\n\n"
+            f"Уведомлю если цена поменяется.",
+            reply_markup=main_menu_keyboard(),
+        )
+
     elif data.startswith("remove_"):
         pid = int(data.split("_")[1])
         conn = get_db()
@@ -310,43 +382,56 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
 
-    if not text.startswith("http"):
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
-        ])
-        await update.message.reply_text("Нужна ссылка на товар. Попробуй ещё:", reply_markup=kb)
-        return
-
-    await update.message.reply_text("Получаю цену...")
-
     import asyncio
-    info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, text)
 
-    if not info:
+    if not re.match(r'^[A-Za-z0-9]+$', text):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
-        await update.message.reply_text("Не удалось получить данные. Проверь ссылку.", reply_markup=kb)
+        await update.message.reply_text("Артикул должен содержать только буквы и цифры. Попробуй ещё:", reply_markup=kb)
         return
 
-    conn = get_db()
-    conn.execute(
-        "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
-        (chat_id, text, info["name"], info["sale_price"]),
-    )
-    conn.commit()
-    conn.close()
+    await update.message.reply_text("Ищу по артикулу...")
+    results = await asyncio.get_event_loop().run_in_executor(None, search_senstroy, text)
 
+    if not results:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+        ])
+        await update.message.reply_text("Ничего не найдено. Попробуй другой артикул.", reply_markup=kb)
+        return
+
+    if len(results) == 1:
+        info = results[0]
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
+            (chat_id, info["link"], info["name"], info["sale_price"]),
+        )
+        conn.commit()
+        conn.close()
+        await update.message.reply_text(
+            f"✅ Добавлено!\n\n"
+            f"📦 {info['name']}\n"
+            f"💰 {info['sale_price']:.2f} ₽\n"
+            f"🔗 {info['link']}\n\n"
+            f"Уведомлю если цена поменяется.",
+            reply_markup=main_menu_keyboard(),
+        )
+        context.user_data.pop("add_store", None)
+        return
+
+    context.user_data["search_results"] = results
+    buttons = []
+    for i, r in enumerate(results):
+        price_str = f"{r['sale_price']:.2f}₽" if r["sale_price"] > 0 else "—"
+        name_short = r["name"][:35]
+        buttons.append([InlineKeyboardButton(f"📦 {name_short} — {price_str}", callback_data=f"sel_{i}")])
+    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
     await update.message.reply_text(
-        f"✅ Добавлено!\n\n"
-        f"📦 {info['name']}\n"
-        f"💰 {info['sale_price']:.2f} ₽\n"
-        f"🔗 {info['link']}\n\n"
-        f"Уведомлю если цена поменяется.",
-        reply_markup=main_menu_keyboard(),
+        f"Нашёл {len(results)} товаров. Выбери:",
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
-
-    context.user_data.pop("add_store", None)
 
 
 async def check_prices(context):
