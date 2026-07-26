@@ -416,6 +416,22 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(results) == 1:
         info = results[0]
         conn = get_db()
+        exists = conn.execute(
+            "SELECT id FROM products WHERE chat_id=? AND url=?",
+            (chat_id, info["link"]),
+        ).fetchone()
+        conn.close()
+        if exists:
+            await update.message.reply_text(
+                "⚠️ <b>Этот товар уже добавлен!</b>\n\n"
+                f"📦 <b>{info['name']}</b>\n"
+                f"Проверь «📦 Мои товары».",
+                parse_mode="HTML",
+                reply_markup=main_menu_keyboard(),
+            )
+            context.user_data.pop("add_store", None)
+            return
+        conn = get_db()
         conn.execute(
             "INSERT INTO products(chat_id, url, name, article, last_price) VALUES(?, ?, ?, ?, ?)",
             (chat_id, info["link"], info["name"], info.get("article", ""), info["sale_price"]),
@@ -437,23 +453,39 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("add_store", None)
 
     conn = get_db()
+    existing_urls = {
+        row[0] for row in conn.execute(
+            "SELECT url FROM products WHERE chat_id=?", (chat_id,)
+        ).fetchall()
+    }
+    added = []
+    skipped = []
     for r in results:
+        if r["link"] in existing_urls:
+            skipped.append(r)
+            continue
         conn.execute(
             "INSERT INTO products(chat_id, url, name, article, last_price) VALUES(?, ?, ?, ?, ?)",
             (chat_id, r["link"], r["name"], r.get("article", ""), r["sale_price"]),
         )
+        added.append(r)
     conn.commit()
     conn.close()
 
-    lines = []
-    for r in results:
-        price_str = f"{r['sale_price']:.2f} ₽" if r["sale_price"] > 0 else "—"
-        lines.append(f"📦 <b>{r['name']}</b>\n💰 {price_str}")
-    summary = "\n\n".join(lines)
+    if added:
+        lines = []
+        for r in added:
+            price_str = f"{r['sale_price']:.2f} ₽" if r["sale_price"] > 0 else "—"
+            lines.append(f"📦 <b>{r['name']}</b>\n💰 {price_str}")
+        summary = "\n\n".join(lines)
+        msg = f"✅ <b>Добавлено {len(added)} товаров!</b>\n\n{summary}"
+        if skipped:
+            msg += f"\n\n⚠️ Уже отслеживается: <b>{len(skipped)}</b>"
+    else:
+        msg = "⚠️ <b>Все найденные товары уже добавлены!</b>\nПроверь «📦 Мои товары»."
 
     await update.message.reply_text(
-        f"✅ <b>Добавлено {len(results)} товаров!</b>\n\n{summary}\n\n"
-        f"Уведомлю если цена поменяется.",
+        msg,
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
