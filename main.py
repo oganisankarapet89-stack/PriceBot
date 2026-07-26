@@ -62,25 +62,47 @@ def set_interval(chat_id, hours):
     conn.close()
 
 
-def parse_tim(url):
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/html"}
+def parse_senstroy(url):
+    import re
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+    }
     r = requests.get(url, headers=headers, timeout=20, verify=False)
     if r.status_code != 200:
         return None
-    import re
-    match = re.search(r'<script\s+type="application/ld\+json"[^>]*>(.*?)</script>', r.text, re.DOTALL)
-    if not match:
-        return None
-    ld = json.loads(match.group(1))
-    if isinstance(ld, list):
-        ld = ld[0]
-    offers = ld.get("offers", {})
-    if isinstance(offers, list):
-        offers = offers[0] if offers else {}
-    price = float(offers.get("price", 0))
+    html = r.text
+
+    name = ""
+    og = re.search(r'<meta\s+property="og:title"\s+content="([^"]+)"', html)
+    if og:
+        name = og.group(1).strip()
+    if not name:
+        t = re.search(r"<title>([^<]+)</title>", html)
+        if t:
+            name = t.group(1).split("|")[0].strip()
+    if not name:
+        name = "Senstroy товар"
+
+    price = 0.0
+    m = re.search(r'<meta\s+itemprop="price"\s+content="([\d.]+)"', html)
+    if m:
+        price = float(m.group(1))
+    if not price:
+        m = re.search(r'data-value="([\d.]+)"', html)
+        if m:
+            price = float(m.group(1))
+    if not price:
+        m = re.search(r'"price"\s*:\s*"?([\d.]+)"?', html)
+        if m:
+            price = float(m.group(1))
     if price <= 0:
         return None
-    return {"name": ld.get("name", "TIM товар"), "sale_price": price, "link": url}
+
+    price = price / 2
+
+    return {"name": name, "sale_price": price, "link": url}
 
 
 def main_menu_keyboard():
@@ -127,7 +149,7 @@ def products_keyboard(rows):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "PriceBot — отслеживаю цены на TIM-Зейслер\n\n"
+        "PriceBot — отслеживаю цены на Senstroy\n\n"
         "Выбери действие:",
         reply_markup=main_menu_keyboard(),
     )
@@ -191,7 +213,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import asyncio
         for r in rows:
             pid, url, last_price = r["id"], r["url"], r["last_price"]
-            info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
+            info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, url)
             if not info:
                 kb = InlineKeyboardMarkup([
                     [InlineKeyboardButton("◀️ Назад", callback_data="back")],
@@ -298,7 +320,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Получаю цену...")
 
     import asyncio
-    info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, text)
+    info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, text)
 
     if not info:
         kb = InlineKeyboardMarkup([
@@ -349,7 +371,7 @@ async def check_prices(context):
         for r in products:
             pid, url, last_price = r["id"], r["url"], r["last_price"]
             try:
-                info = await asyncio.get_event_loop().run_in_executor(None, parse_tim, url)
+                info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, url)
             except Exception as e:
                 errors.append(f"❌ #{r['id']}: {e}")
                 continue
