@@ -326,30 +326,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Test notify error: {e}")
         asyncio.get_event_loop().create_task(send_test_later())
 
-    elif data.startswith("sel_"):
-        idx = int(data.split("_")[1])
-        results = context.user_data.get("search_results", [])
-        if idx < 0 or idx >= len(results):
-            return
-        info = results[idx]
-        conn = get_db()
-        conn.execute(
-            "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
-            (chat_id, info["link"], info["name"], info["sale_price"]),
-        )
-        conn.commit()
-        conn.close()
-        context.user_data.pop("search_results", None)
-        context.user_data.pop("add_store", None)
-        await query.edit_message_text(
-            f"✅ Добавлено!\n\n"
-            f"📦 {info['name']}\n"
-            f"💰 {info['sale_price']:.2f} ₽\n"
-            f"🔗 {info['link']}\n\n"
-            f"Уведомлю если цена поменяется.",
-            reply_markup=main_menu_keyboard(),
-        )
-
     elif data.startswith("remove_"):
         pid = int(data.split("_")[1])
         conn = get_db()
@@ -421,16 +397,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("add_store", None)
         return
 
-    context.user_data["search_results"] = results
-    buttons = []
-    for i, r in enumerate(results):
-        price_str = f"{r['sale_price']:.2f}₽" if r["sale_price"] > 0 else "—"
-        name_short = r["name"][:35]
-        buttons.append([InlineKeyboardButton(f"📦 {name_short} — {price_str}", callback_data=f"sel_{i}")])
-    buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
+    context.user_data.pop("add_store", None)
+
+    conn = get_db()
+    for r in results:
+        conn.execute(
+            "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
+            (chat_id, r["link"], r["name"], r["sale_price"]),
+        )
+    conn.commit()
+    conn.close()
+
+    lines = []
+    for r in results:
+        price_str = f"{r['sale_price']:.2f} ₽" if r["sale_price"] > 0 else "—"
+        lines.append(f"📦 {r['name']}\n💰 {price_str}")
+    summary = "\n\n".join(lines)
+
     await update.message.reply_text(
-        f"Нашёл {len(results)} товаров. Выбери:",
-        reply_markup=InlineKeyboardMarkup(buttons),
+        f"✅ Добавлено {len(results)} товаров!\n\n{summary}\n\nУведомлю если цена поменяется.",
+        reply_markup=main_menu_keyboard(),
     )
 
 
