@@ -42,6 +42,10 @@ def init_db():
         conn.execute("ALTER TABLE products ADD COLUMN name TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE products ADD COLUMN article TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -142,10 +146,16 @@ def search_senstroy(article):
             if p:
                 price = float(p.group(1).replace("\xa0", "").replace(" ", "").replace(",", ""))
 
+        art = ""
+        a = re.search(r'article_block[^>]*data-value="([^"]+)"', block)
+        if a:
+            art = html_mod.unescape(a.group(1).strip())
+
         if any(r["link"] == full_url for r in results):
             continue
         results.append({
             "name": html_mod.unescape(title.strip()),
+            "article": art,
             "sale_price": price / 2 if price else 0,
             "link": full_url,
         })
@@ -188,8 +198,8 @@ def products_keyboard(rows):
     buttons = []
     for r in rows:
         price = f"{r['last_price']:.2f}₽" if r["last_price"] > 0 else "—"
-        name = r["name"][:30] if r["name"] else f"#{r['id']}"
-        text = f"❌ {name} — {price}"
+        label = r["article"] if r["article"] else (r["name"][:30] if r["name"] else f"#{r['id']}")
+        text = f"❌ {label} — {price}"
         buttons.append([InlineKeyboardButton(text, callback_data=f"remove_{r['id']}")])
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
     return InlineKeyboardMarkup(buttons)
@@ -228,7 +238,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "list":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, article, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -249,7 +259,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "check":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, article, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -332,7 +342,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.execute("DELETE FROM products WHERE id=?", (pid,))
         conn.commit()
         rows = conn.execute(
-            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, article, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -381,8 +391,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = results[0]
         conn = get_db()
         conn.execute(
-            "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
-            (chat_id, info["link"], info["name"], info["sale_price"]),
+            "INSERT INTO products(chat_id, url, name, article, last_price) VALUES(?, ?, ?, ?, ?)",
+            (chat_id, info["link"], info["name"], info.get("article", ""), info["sale_price"]),
         )
         conn.commit()
         conn.close()
@@ -402,8 +412,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = get_db()
     for r in results:
         conn.execute(
-            "INSERT INTO products(chat_id, url, name, last_price) VALUES(?, ?, ?, ?)",
-            (chat_id, r["link"], r["name"], r["sale_price"]),
+            "INSERT INTO products(chat_id, url, name, article, last_price) VALUES(?, ?, ?, ?, ?)",
+            (chat_id, r["link"], r["name"], r.get("article", ""), r["sale_price"]),
         )
     conn.commit()
     conn.close()
