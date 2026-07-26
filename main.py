@@ -360,11 +360,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     import asyncio
 
-    if not re.match(r'^[A-Za-z0-9]+$', text):
+    if not re.match(r'^[A-Za-z0-9.]+$', text):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("◀️ Назад", callback_data="back")],
         ])
-        await update.message.reply_text("Артикул должен содержать только буквы и цифры. Попробуй ещё:", reply_markup=kb)
+        await update.message.reply_text("Артикул должен содержать только буквы, цифры и точки. Попробуй ещё:", reply_markup=kb)
         return
 
     await update.message.reply_text("Ищу по артикулу...")
