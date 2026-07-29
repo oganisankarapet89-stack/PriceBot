@@ -112,19 +112,6 @@ def parse_senstroy(url):
 def search_senstroy(article):
     import html as html_mod
 
-    clean = article.replace(".", "")
-    if clean.isdigit():
-        try:
-            from url_map import SENSTROY_URLS
-            pid = int(clean)
-            if pid in SENSTROY_URLS:
-                info = parse_senstroy("https://senstroy.ru" + SENSTROY_URLS[pid])
-                if info:
-                    info["article"] = str(pid)
-                    return [info]
-        except ImportError:
-            pass
-
     url = f"https://senstroy.ru/catalog/?q={article}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
