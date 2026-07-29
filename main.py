@@ -106,7 +106,7 @@ def parse_senstroy(url):
     if price <= 0:
         return None
 
-    return {"name": name, "sale_price": price / 2, "link": url, "store": "senstroy"}
+    return {"name": name, "sale_price": price / 2, "link": url}
 
 
 def search_senstroy(article):
@@ -156,120 +156,9 @@ def search_senstroy(article):
             "article": art,
             "sale_price": price / 2 if price else 0,
             "link": full_url,
-            "store": "senstroy",
         })
 
     return results[:5]
-
-
-# ─── Wildberries ───────────────────────────────────────────────────
-
-def _wb_basket(article: str) -> str:
-    try:
-        n = int(article[:2])
-        baskets = [
-            (0, 100, "01"), (100, 200, "02"), (200, 300, "03"), (300, 400, "04"),
-            (400, 500, "05"), (500, 600, "06"), (600, 700, "07"), (700, 800, "08"),
-            (800, 900, "09"), (900, 1000, "10"), (1000, 1100, "11"), (1100, 1200, "12"),
-            (1200, 1300, "13"), (1300, 1400, "14"), (1400, 1500, "15"), (1500, 1600, "16"),
-            (1600, 1700, "17"), (1700, 1800, "18"), (1800, 1900, "19"), (1900, 2000, "20"),
-            (2000, 3000, "21"), (3000, 4000, "22"),
-        ]
-        for low, high, b in baskets:
-            if low <= n < high:
-                return b
-    except:
-        pass
-    return "01"
-
-
-def parse_wildberries(url):
-    m = re.search(r"/catalog/(\d+)", url)
-    if not m:
-        m = re.search(r"wildberries\.ru/(\d+)", url)
-    if not m:
-        return None
-    art = m.group(1)
-    basket = _wb_basket(art)
-    vol = art[:-2] if len(art) > 2 else "0"
-    part = art[:-2] if len(art) > 2 else "0"
-    api = f"https://basket-{basket}.wbbasket.ru/vol{vol}/part{part}/{art}/info/ru/card.json"
-    try:
-        r = requests.get(api, headers=HEADERS, timeout=15)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-    except:
-        return None
-
-    name = data.get("imt_name", data.get("subject", "Wildberries товар"))
-    sizes = data.get("sizes", [])
-    price = 0
-    if sizes:
-        p = sizes[0].get("price", {})
-        total = p.get("total", 0)
-        price = total / 100 if total else 0
-
-    if price <= 0:
-        return None
-
-    link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
-    return {"name": name, "sale_price": price, "link": link, "store": "wildberries"}
-
-
-def search_wildberries(text):
-    if text.isdigit():
-        info = parse_wildberries(f"https://www.wildberries.ru/catalog/{text}/detail.aspx")
-        return [info] if info else []
-
-    try:
-        r = requests.get(
-            f"https://search.wb.ru/exactmatch/ns/common/wildberries?query={requests.utils.quote(text)}&resultset=catalog",
-            headers=HEADERS, timeout=15,
-        )
-        if r.status_code != 200:
-            return []
-        data = r.json()
-    except:
-        return []
-
-    results = []
-    seen = set()
-    for item in data.get("data", {}).get("products", []):
-        art = str(item.get("id", ""))
-        if not art or art in seen:
-            continue
-        seen.add(art)
-        price = item.get("salePriceU", 0) / 100
-        name = item.get("name", f"WB #{art}")
-        link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
-        results.append({
-            "name": name[:80],
-            "article": art,
-            "sale_price": price,
-            "link": link,
-            "store": "wildberries",
-        })
-        if len(results) >= 5:
-            break
-
-    return results
-
-
-def parse_product(url, store):
-    return parse_wildberries(url) if store == "wildberries" else parse_senstroy(url)
-
-
-def search_products(article, store):
-    return search_wildberries(article) if store == "wildberries" else search_senstroy(article)
-
-
-def store_emoji(store):
-    return {"senstroy": "🟢", "wildberries": "🟣"}.get(store, "🟣")
-
-
-def store_name(store):
-    return {"senstroy": "Senstroy", "wildberries": "Wildberries"}.get(store, store)
 
 
 # ─── Keyboards ──────────────────────────────────────────────────
@@ -311,7 +200,7 @@ def products_keyboard(rows):
         price = f"{r['last_price']:.2f}₽" if r["last_price"] > 0 else "—"
         label = r["article"] if r["article"] else (r["name"][:25] if r["name"] else f"#{r['id']}")
         buttons.append([InlineKeyboardButton(
-            f"❌ {store_emoji(r['store'])} {label} — {price}",
+            f"❌ 🟢 {label} — {price}",
             callback_data=f"remove_{r['id']}"
         )])
     buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
@@ -324,7 +213,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏷 <b>PRICEBOT</b>\n"
         "Просто отправь артикул товара\n"
-        "Я сам найду его на Wildberries и Senstroy\n\n"
+        "Я сам найду его на Senstroy\n\n"
         "Или выбери действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
@@ -341,7 +230,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🏷 <b>PRICEBOT</b>\n"
             "Просто отправь артикул товара\n"
-            "Я сам найду его на Спортмастер и Senstroy\n\n"
+            "Я сам найду его на Senstroy\n\n"
             "Или выбери действие:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
@@ -351,8 +240,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📝 <b>Добавление товара</b>\n\n"
             "Просто отправь в чат <b>артикул</b> или <b>название</b>\n"
-            "Я сам поищу на Wildberries и Senstroy\n\n"
-            "<i>Например: 12345678, HJS066B</i>",
+            "Я сам поищу на Senstroy\n\n"
+            "<i>Например: HJS066B</i>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
@@ -362,7 +251,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "list":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, url, store, name, article, last_price FROM products WHERE chat_id=? ORDER BY store, id",
+            "SELECT id, url, name, article, last_price FROM products WHERE chat_id=? ORDER BY id",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -377,11 +266,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         text = "📦 <b>Мои товары</b>\n\n"
-        seen_stores = set()
         for r in rows:
-            if r["store"] not in seen_stores:
-                seen_stores.add(r["store"])
-                text += f"\n{store_emoji(r['store'])} <b>{store_name(r['store'])}</b>\n"
             price = f"{r['last_price']:.2f}₽" if r["last_price"] > 0 else "—"
             label = r["article"] if r["article"] else r["name"][:30]
             text += f"  #{r['id']} {label} — {price}\n"
@@ -394,7 +279,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "check":
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, url, store, name, last_price FROM products WHERE chat_id=?",
+            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -404,11 +289,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🔍 <b>Проверяю цены...</b>", parse_mode="HTML")
 
         for r in rows:
-            pid, url, store, last_price = r["id"], r["url"], r["store"], r["last_price"]
-            info = await asyncio.get_event_loop().run_in_executor(None, parse_product, url, store)
+            pid, url, last_price = r["id"], r["url"], r["last_price"]
+            info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, url)
             if not info:
                 await query.message.reply_text(
-                    f"⚠️ <b>Ошибка</b> #{pid}\n{store_emoji(store)} <code>{url[:60]}</code>",
+                    f"⚠️ <b>Ошибка</b> #{pid}\n🟢 <code>{url[:60]}</code>",
                     parse_mode="HTML",
                 )
                 continue
@@ -417,13 +302,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 diff = new_price - last_price
                 sym = "+" if diff > 0 else ""
                 msg = (
-                    f"{store_emoji(store)} <b>{info['name']}</b>\n"
+                    f"🟢 <b>{info['name']}</b>\n"
                     f"💰 {last_price:.2f} → {new_price:.2f} ₽ (<b>{sym}{diff:.2f}</b>)\n"
                     f"🔗 {info['link']}"
                 )
             else:
                 msg = (
-                    f"{store_emoji(store)} <b>{info['name']}</b>\n"
+                    f"🟢 <b>{info['name']}</b>\n"
                     f"💰 {new_price:.2f} ₽ — без изменений\n"
                     f"🔗 {info['link']}"
                 )
@@ -475,7 +360,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.execute("DELETE FROM products WHERE id=?", (pid,))
         conn.commit()
         rows = conn.execute(
-            "SELECT id, url, store, name, article, last_price FROM products WHERE chat_id=? ORDER BY store, id",
+            "SELECT id, url, name, article, last_price FROM products WHERE chat_id=? ORDER BY id",
             (chat_id,),
         ).fetchall()
         conn.close()
@@ -493,9 +378,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["wildberries", "senstroy"]
-
-
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
@@ -503,19 +385,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text or len(text) > 100:
         return
 
-    await update.message.reply_text("🔍 <b>Ищу товар по всем магазинам...</b>", parse_mode="HTML")
+    await update.message.reply_text("🔍 <b>Ищу товар на Senstroy...</b>", parse_mode="HTML")
 
-    all_results = []
-    for store in ALL_STORES:
-        try:
-            results = await asyncio.get_event_loop().run_in_executor(
-                None, search_products, text, store
-            )
-            all_results.extend(results)
-        except:
-            pass
+    results = await asyncio.get_event_loop().run_in_executor(None, search_senstroy, text)
 
-    if not all_results:
+    if not results:
         await update.message.reply_text(
             "😕 <b>Ничего не найдено</b>\n"
             "Проверь артикул или попробуй другой запрос.",
@@ -532,13 +406,13 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     added = []
     skipped = []
-    for r in all_results:
+    for r in results:
         if r["link"] in existing_urls:
             skipped.append(r)
             continue
         conn.execute(
-            "INSERT INTO products(chat_id, url, store, name, article, last_price) VALUES(?, ?, ?, ?, ?, ?)",
-            (chat_id, r["link"], r["store"], r["name"], r.get("article", ""), r["sale_price"]),
+            "INSERT INTO products(chat_id, url, store, name, article, last_price) VALUES(?, ?, 'senstroy', ?, ?, ?)",
+            (chat_id, r["link"], r["name"], r.get("article", ""), r["sale_price"]),
         )
         added.append(r)
     conn.commit()
@@ -548,7 +422,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines = []
         for r in added:
             price_str = f"{r['sale_price']:.2f} ₽" if r["sale_price"] > 0 else "—"
-            lines.append(f"{store_emoji(r['store'])} <b>{r['name'][:50]}</b>\n💰 {price_str}  🔗 {r['link']}")
+            lines.append(f"🟢 <b>{r['name'][:50]}</b>\n💰 {price_str}  🔗 {r['link']}")
         summary = "\n\n".join(lines)
         msg = f"✅ <b>Добавлено {len(added)} товаров!</b>\n\n{summary}"
         if skipped:
@@ -565,7 +439,7 @@ async def check_prices(context):
     bot = context.bot
     conn = get_db()
     rows = conn.execute(
-        "SELECT p.id, p.chat_id, p.url, p.store, p.name, p.last_price, s.interval_hours "
+        "SELECT p.id, p.chat_id, p.url, p.name, p.last_price, s.interval_hours "
         "FROM products p LEFT JOIN settings s ON p.chat_id = s.chat_id"
     ).fetchall()
     if not rows:
@@ -581,14 +455,14 @@ async def check_prices(context):
     for chat_id, products in by_chat.items():
         errors = []
         for r in products:
-            pid, url, store, last_price = r["id"], r["url"], r["store"], r["last_price"]
+            pid, url, last_price = r["id"], r["url"], r["last_price"]
             try:
-                info = await asyncio.get_event_loop().run_in_executor(None, parse_product, url, store)
+                info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, url)
             except Exception as e:
                 errors.append(f"❌ #{r['id']}: {e}")
                 continue
             if not info:
-                errors.append(f"❌ {store_emoji(store)} #{r['id']}: не удалось")
+                errors.append(f"❌ 🟢 #{r['id']}: не удалось")
                 continue
             new_price = info["sale_price"]
             if last_price == 0:
@@ -603,7 +477,7 @@ async def check_prices(context):
                     emoji, label = "🟢", f"Подешевел на {abs(diff):.2f} ₽"
                 msg = (
                     f"{emoji} <b>{label}</b>\n\n"
-                    f"{store_emoji(store)} <b>{info['name']}</b>\n"
+                    f"🟢 <b>{info['name']}</b>\n"
                     f"💰 {last_price:.2f} → {new_price:.2f} ₽\n"
                     f"🔗 {info['link']}"
                 )
@@ -616,11 +490,11 @@ async def check_prices(context):
 
         summary_lines = ["📊 <b>Сводка:</b>\n"]
         refreshed = conn.execute(
-            "SELECT store, name, last_price FROM products WHERE chat_id=?", (chat_id,)
+            "SELECT name, last_price FROM products WHERE chat_id=?", (chat_id,)
         ).fetchall()
         for p in refreshed:
             price_str = f"{p['last_price']:.2f} ₽" if p["last_price"] > 0 else "—"
-            summary_lines.append(f"• {store_emoji(p['store'])} <b>{p['name'][:35]}</b>  💰 {price_str}")
+            summary_lines.append(f"• 🟢 <b>{p['name'][:35]}</b>  💰 {price_str}")
         try:
             await bot.send_message(chat_id=chat_id, text="\n".join(summary_lines), parse_mode="HTML")
             if errors:
