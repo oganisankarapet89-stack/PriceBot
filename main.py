@@ -269,9 +269,15 @@ def search_yamarket(text):
 
 # ─── Ozon ────────────────────────────────────────────────────────
 
+OZON_HEADERS = {
+    **HEADERS,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+}
+
+
 def parse_ozon(url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
+        r = requests.get(url, headers=OZON_HEADERS, timeout=20)
     except:
         return None
     if r.status_code != 200:
@@ -290,29 +296,36 @@ def parse_ozon(url):
         name = "Ozon товар"
 
     price = 0.0
-    m = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-    if m:
-        try:
-            data = json.loads(m.group(1))
-            if isinstance(data, dict):
-                if "offers" in data:
-                    p = data["offers"].get("price", 0)
-                    if p:
-                        price = float(p)
-                elif "price" in data:
-                    price = float(data["price"])
-        except:
-            pass
-    if not price:
-        m = re.search(r'"price":\s*"?(\d+\.?\d*)"?', html)
+    for pat in [
+        (r'"price":\s*"?(\d+\.?\d*)"?', 1),
+        (r'"final_price":\s*"?(\d+\.?\d*)"?', 1),
+        (r'"min_price":"?(\d+\.?\d*)"?', 1),
+        (r'"priceRu":"?(\d+\.?\d*)"?', 1),
+        (r'<span[^>]*data-price[^>]*>([\d\s]+)', 1),
+        (r'<span[^>]*>([\d\s]+)\s*₽', 1),
+    ]:
+        m = re.search(pat[0], html)
         if m:
-            price = float(m.group(1))
+            price = float(m.group(pat[1]).replace("\xa0", "").replace(" ", ""))
+            if price > 0:
+                break
+
     if not price:
-        m = re.search(r'"final_price":\s*"?(\d+\.?\d*)"?', html)
-        if m:
-            price = float(m.group(1))
-    if not price:
-        m = re.search(r'<span[^>]*>([\d\s]+)\s*[₽]', html[:10000])
+        ld = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+        if ld:
+            try:
+                data = json.loads(ld.group(1))
+                if isinstance(data, dict):
+                    off = data.get("offers", data)
+                    if isinstance(off, dict):
+                        price = float(off.get("price", 0))
+                    elif isinstance(off, list):
+                        price = float(off[0].get("price", 0))
+            except:
+                pass
+
+    if price <= 0:
+        m = re.search(r'(\d[\d\s]*\d)\s*[₽руб]', html[:20000])
         if m:
             price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
 
@@ -328,53 +341,50 @@ def search_ozon(text):
         return [info] if info else []
 
     encoded = requests.utils.quote(text)
-    url = f"https://www.ozon.ru/search/?text={encoded}&from_global=true"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=20)
-    except:
+    urls = [
+        f"https://www.ozon.ru/search/?text={encoded}&from_global=true",
+        f"https://www.ozon.ru/search/?text={encoded}",
+    ]
+
+    html = None
+    for url in urls:
+        try:
+            r = requests.get(url, headers=OZON_HEADERS, timeout=20)
+            if r.status_code == 200 and len(r.text) > 1000:
+                html = r.text
+                break
+        except:
+            continue
+
+    if not html:
         return []
-    if r.status_code != 200:
-        return []
-    html = r.text
 
     results = []
     seen_links = set()
 
-    blocks = re.findall(
-        r'href="(/product/[^"]+/)"[^>]*>.*?<span[^>]*>([^<]+)</span>',
-        html[:200000]
-    )
-    for href, title in blocks:
-        full_url = "https://www.ozon.ru" + href
-        if full_url in seen_links:
-            continue
-        seen_links.add(full_url)
-        results.append({
-            "name": re.sub(r'<[^>]+>', '', title).strip()[:80],
-            "article": text,
-            "sale_price": 0,
-            "link": full_url,
-            "store": "ozon",
-        })
-        if len(results) >= 5:
-            break
-
-    if not results:
-        links = re.findall(r'href="(/product/[^"]+)"', html)
-        for link in links:
-            full_url = "https://www.ozon.ru" + link
-            if full_url in seen_links:
+    for pat in [
+        r'href="(/product/[^"]+/)"',
+        r'href="(https?://(?:www\.)?ozon\.ru/product/[^"]+)"',
+        r'"link":"(/product/[^"]+)"',
+    ]:
+        for m in re.finditer(pat, html):
+            href = m.group(1)
+            if not href.startswith("http"):
+                href = "https://www.ozon.ru" + href
+            if "ozon.ru/product" not in href or href in seen_links:
                 continue
-            seen_links.add(full_url)
+            seen_links.add(href)
             results.append({
                 "name": f"Ozon #{len(results) + 1}",
                 "article": text,
                 "sale_price": 0,
-                "link": full_url,
+                "link": href,
                 "store": "ozon",
             })
             if len(results) >= 5:
                 break
+        if results:
+            break
 
     return results
 
