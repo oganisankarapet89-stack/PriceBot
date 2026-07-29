@@ -164,9 +164,16 @@ def search_senstroy(article):
 
 # ─── Яндекс Маркет ──────────────────────────────────────────────
 
+YAMARKET_HEADERS = {
+    **HEADERS,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Cookie": "spravka=dD0xNzI3MDYyNjI5O2k9MjE2LjE3MC4yMDQuMjU7RD1GRTt1PXlhbmRleDtsPXJ1O209Y29udGluZW50Ow==",
+}
+
+
 def parse_yamarket(url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=25)
+        r = requests.get(url, headers=YAMARKET_HEADERS, timeout=25)
     except:
         return None
     if r.status_code != 200:
@@ -181,25 +188,29 @@ def parse_yamarket(url):
         name = "Яндекс Маркет товар"
 
     price = 0.0
-    p = re.search(r'<span\s+data-auto="price"[^>]*>([\d\s]+)', html)
-    if p:
-        price = float(p.group(1).replace("\xa0", "").replace(" ", ""))
+    ld = re.search(r'<script\s+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL)
+    if ld:
+        try:
+            data = json.loads(ld.group(1))
+            if isinstance(data, dict):
+                off = data.get("offers", data)
+                if isinstance(off, dict):
+                    price = float(off.get("price", 0))
+        except:
+            pass
     if not price:
-        p = re.search(r'meta\s+itemprop="price"\s+content="([\d.]+)"', html)
-        if p:
-            price = float(p.group(1))
-    if not price:
-        p = re.search(r'"price":\s*["\']?([\d.]+)["\']?', html)
-        if p:
-            price = float(p.group(1))
-    if not price:
-        p = re.search(r'<div[^>]*class="[^"]*price[^"]*"[^>]*>([\d\s.,]+)\s*₽', html)
-        if p:
-            price = float(p.group(1).replace("\xa0", "").replace(" ", "").replace(",", "."))
-    if not price:
-        p = re.search(r'<span[^>]*>([\d\s]+)\s*₽', html[:5000])
-        if p:
-            price = float(p.group(1).replace("\xa0", "").replace(" ", ""))
+        for pat in [
+            r'<span\s+data-auto="price"[^>]*>([\d\s]+)',
+            r'<meta\s+itemprop="price"\s+content="([\d.]+)"',
+            r'"price":\s*["\']?(\d+\.?\d*)["\']?',
+            r'data-price="([\d.]+)"',
+            r'"priceRu":\s*["\']?(\d+\.?\d*)["\']?',
+        ]:
+            m = re.search(pat, html)
+            if m:
+                price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
+                if price > 0:
+                    break
 
     if price <= 0:
         return None
@@ -209,35 +220,40 @@ def parse_yamarket(url):
 
 def search_yamarket(text):
     encoded = requests.utils.quote(text)
-    url = f"https://market.yandex.ru/search?text={encoded}&local-offers-first=0"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=25)
-    except:
+    urls = [
+        f"https://market.yandex.ru/search?text={encoded}&cpa=0",
+        f"https://m.market.yandex.ru/search?text={encoded}",
+    ]
+
+    html = None
+    for url in urls:
+        try:
+            r = requests.get(url, headers=YAMARKET_HEADERS, timeout=25)
+            if r.status_code == 200 and len(r.text) > 500:
+                html = r.text
+                break
+        except:
+            continue
+
+    if not html:
         return []
-    if r.status_code != 200:
-        return []
-    html = r.text
 
     results = []
     seen_links = set()
 
-    cards = re.split(r'<div\s+data-auto="[^"]*card[^"]*"', html)
-    if not cards or len(cards) < 2:
-        cards = re.split(r'<article[^>]*>', html)
-
-    if len(cards) > 1:
-        search_blocks = cards[1:]
-    else:
-        links = re.findall(
-            r'href="(https?://market\.yandex\.ru/(?:product/\d+|cc/\w+)[^"]*)"[^>]*>([^<]+)',
-            html
-        )
-        for href, title in links:
-            if href in seen_links:
+    for pat in [
+        r'href="(https?://market\.yandex\.ru/(?:product|cc)/[^"]+)"',
+        r'href="(/product/[^"]+)"',
+    ]:
+        for m in re.finditer(pat, html):
+            href = m.group(1)
+            if not href.startswith("http"):
+                href = "https://market.yandex.ru" + href
+            if "market.yandex" not in href or href in seen_links:
                 continue
             seen_links.add(href)
             results.append({
-                "name": re.sub(r'<[^>]+>', '', title).strip()[:80],
+                "name": f"Яндекс Маркет #{len(results) + 1}",
                 "article": text,
                 "sale_price": 0,
                 "link": href,
@@ -245,25 +261,7 @@ def search_yamarket(text):
             })
             if len(results) >= 5:
                 break
-        return results
-
-    raw_links = re.findall(
-        r'href="(https?://market\.yandex\.ru/(?:product/\d+|cc/\w+)[^"]*)"',
-        "\n".join(search_blocks)
-    )
-    seen = set()
-    for href in raw_links:
-        if href in seen:
-            continue
-        seen.add(href)
-        results.append({
-            "name": f"Яндекс Маркет #{len(results) + 1}",
-            "article": text,
-            "sale_price": 0,
-            "link": href,
-            "store": "yamarket",
-        })
-        if len(results) >= 5:
+        if results:
             break
 
     return results
