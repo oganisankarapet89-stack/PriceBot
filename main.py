@@ -112,6 +112,18 @@ def parse_senstroy(url):
 def search_senstroy(article):
     import html as html_mod
 
+    if article.isdigit():
+        pid = int(article)
+        try:
+            from url_map import SENSTROY_URLS
+            if pid in SENSTROY_URLS:
+                info = parse_senstroy("https://senstroy.ru" + SENSTROY_URLS[pid])
+                if info:
+                    info["article"] = str(pid)
+                    return [info]
+        except ImportError:
+            pass
+
     url = f"https://senstroy.ru/catalog/?q={article}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
@@ -360,11 +372,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         results = await asyncio.get_event_loop().run_in_executor(None, search_senstroy, text)
 
     if not results:
-        msg = "😕 <b>Ничего не найдено</b>\n"
-        if text.isdigit():
-            msg += "Попробуй отправить <b>ссылку</b> на товар с сайта senstroy.ru или <b>название</b> товара."
-        else:
-            msg += "Проверь артикул или попробуй другой запрос."
+        msg = "😕 <b>Ничего не найдено</b>\nПроверь артикул или попробуй другой."
         await update.message.reply_text(msg, parse_mode="HTML")
         return
 
