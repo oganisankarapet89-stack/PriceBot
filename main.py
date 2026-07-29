@@ -162,129 +162,17 @@ def search_senstroy(article):
     return results[:5]
 
 
-# ─── Яндекс Маркет ──────────────────────────────────────────────
+# ─── Спортмастер ────────────────────────────────────────────────
 
-YAMARKET_HEADERS = {
-    **HEADERS,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Cookie": "spravka=dD0xNzI3MDYyNjI5O2k9MjE2LjE3MC4yMDQuMjU7RD1GRTt1PXlhbmRleDtsPXJ1O209Y29udGluZW50Ow==",
-}
-
-
-def parse_yamarket(url):
-    try:
-        r = requests.get(url, headers=YAMARKET_HEADERS, timeout=25)
-    except:
-        return None
-    if r.status_code != 200:
-        return None
-    html = r.text
-
-    name = ""
-    t = re.search(r"<title>([^<]+)</title>", html)
-    if t:
-        name = t.group(1).split("—")[0].split("›")[0].strip()
-    if not name:
-        name = "Яндекс Маркет товар"
-
-    price = 0.0
-    for pat in [
-        r'<span\s+data-auto="price"[^>]*>([\d\s]+)',
-        r'<meta\s+itemprop="price"\s+content="([\d.]+)"',
-        r'"price":\s*["\']?(\d+\.?\d*)["\']?',
-        r'data-price="([\d.]+)"',
-        r'"priceRu":\s*["\']?(\d+\.?\d*)["\']?',
-    ]:
-        m = re.search(pat, html)
-        if m:
-            price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
-            if price > 0:
-                break
-    if not price:
-        ld = re.search(r'<script\s+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL)
-        if ld:
-            try:
-                data = json.loads(ld.group(1))
-                if isinstance(data, dict):
-                    off = data.get("offers", data)
-                    if isinstance(off, dict):
-                        price = float(off.get("price", 0))
-            except:
-                pass
-
-    if price <= 0:
-        return None
-
-    return {"name": name, "sale_price": price, "link": url, "store": "yamarket"}
-
-
-def search_yamarket(text):
-    if text.isdigit():
-        return [{
-            "name": f"Яндекс Маркет товар",
-            "article": text,
-            "sale_price": 0,
-            "link": f"https://market.yandex.ru/product/{text}",
-            "store": "yamarket",
-        }]
-
-    encoded = requests.utils.quote(text)
-    html = None
-    for url in [
-        f"https://market.yandex.ru/search?text={encoded}&cpa=0",
-        f"https://m.market.yandex.ru/search?text={encoded}",
-    ]:
-        try:
-            r = requests.get(url, headers=YAMARKET_HEADERS, timeout=25)
-            if r.status_code == 200 and len(r.text) > 1000:
-                html = r.text
-                break
-        except:
-            continue
-
-    if not html:
-        return []
-
-    results = []
-    seen_links = set()
-
-    for pat in [
-        r'href="(https?://market\.yandex\.ru/(?:product|cc)/[^"]+)"',
-        r'href="(/product/\d+[^"]*)"',
-    ]:
-        for m in re.finditer(pat, html):
-            href = m.group(1)
-            if not href.startswith("http"):
-                href = "https://market.yandex.ru" + href
-            if href in seen_links:
-                continue
-            seen_links.add(href)
-            results.append({
-                "name": f"Яндекс Маркет #{len(results) + 1}",
-                "article": text,
-                "sale_price": 0,
-                "link": href,
-                "store": "yamarket",
-            })
-            if len(results) >= 5:
-                break
-        if results:
-            break
-
-    return results
-
-
-# ─── Ozon ────────────────────────────────────────────────────────
-
-OZON_HEADERS = {
+SM_HEADERS = {
     **HEADERS,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
 }
 
 
-def parse_ozon(url):
+def parse_sportmaster(url):
     try:
-        r = requests.get(url, headers=OZON_HEADERS, timeout=20)
+        r = requests.get(url, headers=SM_HEADERS, timeout=20)
     except:
         return None
     if r.status_code != 200:
@@ -298,95 +186,66 @@ def parse_ozon(url):
     if not name:
         t = re.search(r"<title>([^<]+)</title>", html)
         if t:
-            name = t.group(1).split("—")[0].strip()
+            name = t.group(1).split("—")[0].split("|")[0].strip()
     if not name:
-        name = "Ozon товар"
+        name = "Спортмастер товар"
 
     price = 0.0
     for pat in [
-        (r'"price":\s*"?(\d+\.?\d*)"?', 1),
-        (r'"final_price":\s*"?(\d+\.?\d*)"?', 1),
-        (r'"min_price":"?(\d+\.?\d*)"?', 1),
-        (r'"priceRu":"?(\d+\.?\d*)"?', 1),
-        (r'<span[^>]*data-price[^>]*>([\d\s]+)', 1),
-        (r'<span[^>]*>([\d\s]+)\s*₽', 1),
+        r'<meta\s+itemprop="price"\s+content="([\d.]+)"',
+        r'"price":\s*["\']?(\d+\.?\d*)["\']?',
+        r'<span[^>]*class="[^"]*price[^"]*"[^>]*>([\d\s.,]+)',
+        r'<div[^>]*class="[^"]*price[^"]*"[^>]*>([\d\s.,]+)',
+        r'(?:цена|price|руб)[^>]*>([\d\s.,]+)\s*(?:руб|₽)',
     ]:
-        m = re.search(pat[0], html)
+        m = re.search(pat, html, re.IGNORECASE)
         if m:
-            price = float(m.group(pat[1]).replace("\xa0", "").replace(" ", ""))
-            if price > 0:
-                break
-
-    if not price:
-        ld = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-        if ld:
             try:
-                data = json.loads(ld.group(1))
-                if isinstance(data, dict):
-                    off = data.get("offers", data)
-                    if isinstance(off, dict):
-                        price = float(off.get("price", 0))
-                    elif isinstance(off, list):
-                        price = float(off[0].get("price", 0))
+                price = float(m.group(1).replace("\xa0", "").replace(" ", "").replace(",", "."))
+                if price > 0:
+                    break
             except:
-                pass
-
-    if price <= 0:
-        m = re.search(r'(\d[\d\s]*\d)\s*[₽руб]', html[:20000])
-        if m:
-            price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
+                continue
 
     if price <= 0:
         return None
 
-    return {"name": name, "sale_price": price, "link": url, "store": "ozon"}
+    return {"name": name, "sale_price": price, "link": url, "store": "sportmaster"}
 
 
-def search_ozon(text):
-    if text.startswith("http") and "ozon.ru" in text:
-        info = parse_ozon(text)
-        return [info] if info else []
-
+def search_sportmaster(text):
     encoded = requests.utils.quote(text)
-    urls = [
-        f"https://www.ozon.ru/search/?text={encoded}&from_global=true",
-        f"https://www.ozon.ru/search/?text={encoded}",
-    ]
-
-    html = None
-    for url in urls:
-        try:
-            r = requests.get(url, headers=OZON_HEADERS, timeout=20)
-            if r.status_code == 200 and len(r.text) > 1000:
-                html = r.text
-                break
-        except:
-            continue
-
-    if not html:
+    try:
+        r = requests.get(
+            f"https://www.sportmaster.ru/search/?text={encoded}",
+            headers=SM_HEADERS, timeout=20,
+        )
+        if r.status_code != 200:
+            return []
+        html = r.text
+    except:
         return []
 
     results = []
     seen_links = set()
 
     for pat in [
-        r'href="(/product/[^"]+/)"',
-        r'href="(https?://(?:www\.)?ozon\.ru/product/[^"]+)"',
-        r'"link":"(/product/[^"]+)"',
+        r'href="(/product/[^"]+)"',
+        r'href="(https?://(?:www\.)?sportmaster\.ru/product/[^"]+)"',
     ]:
         for m in re.finditer(pat, html):
             href = m.group(1)
             if not href.startswith("http"):
-                href = "https://www.ozon.ru" + href
-            if "ozon.ru/product" not in href or href in seen_links:
+                href = "https://www.sportmaster.ru" + href
+            if href in seen_links:
                 continue
             seen_links.add(href)
             results.append({
-                "name": f"Ozon #{len(results) + 1}",
+                "name": f"Спортмастер #{len(results) + 1}",
                 "article": text,
                 "sale_price": 0,
                 "link": href,
-                "store": "ozon",
+                "store": "sportmaster",
             })
             if len(results) >= 5:
                 break
@@ -396,126 +255,20 @@ def search_ozon(text):
     return results
 
 
-# ─── Wildberries ───────────────────────────────────────────────────
-
-def _wb_basket(article: str) -> str:
-    try:
-        n = int(article[:2])
-        baskets = [
-            (0, 100, "01"), (100, 200, "02"), (200, 300, "03"), (300, 400, "04"),
-            (400, 500, "05"), (500, 600, "06"), (600, 700, "07"), (700, 800, "08"),
-            (800, 900, "09"), (900, 1000, "10"), (1000, 1100, "11"), (1100, 1200, "12"),
-            (1200, 1300, "13"), (1300, 1400, "14"), (1400, 1500, "15"), (1500, 1600, "16"),
-            (1600, 1700, "17"), (1700, 1800, "18"), (1800, 1900, "19"), (1900, 2000, "20"),
-            (2000, 3000, "21"), (3000, 4000, "22"),
-        ]
-        for low, high, b in baskets:
-            if low <= n < high:
-                return b
-    except:
-        pass
-    return "01"
-
-
-def parse_wildberries(url):
-    m = re.search(r"/catalog/(\d+)", url)
-    if not m:
-        m = re.search(r"wildberries\.ru/(\d+)", url)
-    if not m:
-        return None
-    art = m.group(1)
-    basket = _wb_basket(art)
-    vol = art[:-2] if len(art) > 2 else "0"
-    part = art[:-2] if len(art) > 2 else "0"
-    api = f"https://basket-{basket}.wbbasket.ru/vol{vol}/part{part}/{art}/info/ru/card.json"
-    try:
-        r = requests.get(api, headers=HEADERS, timeout=15)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-    except:
-        return None
-
-    name = data.get("imt_name", data.get("subject", "Wildberries товар"))
-    sizes = data.get("sizes", [])
-    price = 0
-    if sizes:
-        p = sizes[0].get("price", {})
-        total = p.get("total", 0)
-        price = total / 100 if total else 0
-
-    if price <= 0:
-        return None
-
-    link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
-    return {"name": name, "sale_price": price, "link": link, "store": "wildberries"}
-
-
-def search_wildberries(text):
-    if text.isdigit():
-        info = parse_wildberries(f"https://www.wildberries.ru/catalog/{text}/detail.aspx")
-        return [info] if info else []
-
-    try:
-        r = requests.get(
-            f"https://search.wb.ru/exactmatch/ns/common/wildberries?query={requests.utils.quote(text)}&resultset=catalog",
-            headers=HEADERS, timeout=15,
-        )
-        if r.status_code != 200:
-            return []
-        data = r.json()
-    except:
-        return []
-
-    results = []
-    seen = set()
-    for item in data.get("data", {}).get("products", []):
-        art = str(item.get("id", ""))
-        if not art or art in seen:
-            continue
-        seen.add(art)
-        price = item.get("salePriceU", 0) / 100
-        name = item.get("name", f"WB #{art}")
-        link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
-        results.append({
-            "name": name[:80],
-            "article": art,
-            "sale_price": price,
-            "link": link,
-            "store": "wildberries",
-        })
-        if len(results) >= 5:
-            break
-
-    return results
-
-
 def parse_product(url, store):
-    if store == "yamarket":
-        return parse_yamarket(url)
-    if store == "ozon":
-        return parse_ozon(url)
-    if store == "wildberries":
-        return parse_wildberries(url)
-    return parse_senstroy(url)
+    return parse_sportmaster(url) if store == "sportmaster" else parse_senstroy(url)
 
 
 def search_products(article, store):
-    if store == "yamarket":
-        return search_yamarket(article)
-    if store == "ozon":
-        return search_ozon(article)
-    if store == "wildberries":
-        return search_wildberries(article)
-    return search_senstroy(article)
+    return search_sportmaster(article) if store == "sportmaster" else search_senstroy(article)
 
 
 def store_emoji(store):
-    return {"senstroy": "🟢", "yamarket": "🟡", "ozon": "🔵", "wildberries": "🟣"}.get(store, "🟣")
+    return {"senstroy": "🟢", "sportmaster": "🔴"}.get(store, "🟣")
 
 
 def store_name(store):
-    return {"senstroy": "Senstroy", "yamarket": "Яндекс Маркет", "ozon": "Ozon", "wildberries": "Wildberries"}.get(store, store)
+    return {"senstroy": "Senstroy", "sportmaster": "Спортмастер"}.get(store, store)
 
 
 # ─── Keyboards ──────────────────────────────────────────────────
@@ -570,7 +323,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏷 <b>PRICEBOT</b>\n"
         "Просто отправь артикул товара\n"
-        "Я сам найду его на Senstroy и Wildberries\n\n"
+        "Я сам найду его на Спортмастер и Senstroy\n\n"
         "Или выбери действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
@@ -587,7 +340,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🏷 <b>PRICEBOT</b>\n"
             "Просто отправь артикул товара\n"
-            "Я сам найду его на Senstroy и Wildberries\n\n"
+            "Я сам найду его на Спортмастер и Senstroy\n\n"
             "Или выбери действие:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
@@ -597,8 +350,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📝 <b>Добавление товара</b>\n\n"
             "Просто отправь в чат <b>артикул</b> или <b>название</b>\n"
-            "Я сам поищу на Senstroy и Wildberries\n\n"
-            "<i>Например: HJS066B, 12345678, iPhone 15</i>",
+            "Я сам поищу на Спортмастер и Senstroy\n\n"
+            "<i>Например: 123884DMX-99-44-46, HJS066B</i>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
@@ -739,7 +492,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["yamarket", "wildberries", "senstroy"]
+ALL_STORES = ["sportmaster", "senstroy"]
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
