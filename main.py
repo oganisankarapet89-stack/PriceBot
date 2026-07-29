@@ -162,113 +162,114 @@ def search_senstroy(article):
     return results[:5]
 
 
-# ─── Спортмастер ────────────────────────────────────────────────
+# ─── Wildberries ───────────────────────────────────────────────────
 
-SM_HEADERS = {
-    **HEADERS,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-}
-
-
-def parse_sportmaster(url):
+def _wb_basket(article: str) -> str:
     try:
-        r = requests.get(url, headers=SM_HEADERS, timeout=20)
+        n = int(article[:2])
+        baskets = [
+            (0, 100, "01"), (100, 200, "02"), (200, 300, "03"), (300, 400, "04"),
+            (400, 500, "05"), (500, 600, "06"), (600, 700, "07"), (700, 800, "08"),
+            (800, 900, "09"), (900, 1000, "10"), (1000, 1100, "11"), (1100, 1200, "12"),
+            (1200, 1300, "13"), (1300, 1400, "14"), (1400, 1500, "15"), (1500, 1600, "16"),
+            (1600, 1700, "17"), (1700, 1800, "18"), (1800, 1900, "19"), (1900, 2000, "20"),
+            (2000, 3000, "21"), (3000, 4000, "22"),
+        ]
+        for low, high, b in baskets:
+            if low <= n < high:
+                return b
+    except:
+        pass
+    return "01"
+
+
+def parse_wildberries(url):
+    m = re.search(r"/catalog/(\d+)", url)
+    if not m:
+        m = re.search(r"wildberries\.ru/(\d+)", url)
+    if not m:
+        return None
+    art = m.group(1)
+    basket = _wb_basket(art)
+    vol = art[:-2] if len(art) > 2 else "0"
+    part = art[:-2] if len(art) > 2 else "0"
+    api = f"https://basket-{basket}.wbbasket.ru/vol{vol}/part{part}/{art}/info/ru/card.json"
+    try:
+        r = requests.get(api, headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            return None
+        data = r.json()
     except:
         return None
-    if r.status_code != 200:
-        return None
-    html = r.text
 
-    name = ""
-    n = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.DOTALL)
-    if n:
-        name = re.sub(r'<[^>]+>', '', n.group(1)).strip()
-    if not name:
-        t = re.search(r"<title>([^<]+)</title>", html)
-        if t:
-            name = t.group(1).split("—")[0].split("|")[0].strip()
-    if not name:
-        name = "Спортмастер товар"
-
-    price = 0.0
-    for pat in [
-        r'<meta\s+itemprop="price"\s+content="([\d.]+)"',
-        r'"price":\s*["\']?(\d+\.?\d*)["\']?',
-        r'<span[^>]*class="[^"]*price[^"]*"[^>]*>([\d\s.,]+)',
-        r'<div[^>]*class="[^"]*price[^"]*"[^>]*>([\d\s.,]+)',
-        r'(?:цена|price|руб)[^>]*>([\d\s.,]+)\s*(?:руб|₽)',
-    ]:
-        m = re.search(pat, html, re.IGNORECASE)
-        if m:
-            try:
-                price = float(m.group(1).replace("\xa0", "").replace(" ", "").replace(",", "."))
-                if price > 0:
-                    break
-            except:
-                continue
+    name = data.get("imt_name", data.get("subject", "Wildberries товар"))
+    sizes = data.get("sizes", [])
+    price = 0
+    if sizes:
+        p = sizes[0].get("price", {})
+        total = p.get("total", 0)
+        price = total / 100 if total else 0
 
     if price <= 0:
         return None
 
-    return {"name": name, "sale_price": price, "link": url, "store": "sportmaster"}
+    link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
+    return {"name": name, "sale_price": price, "link": link, "store": "wildberries"}
 
 
-def search_sportmaster(text):
-    encoded = requests.utils.quote(text)
+def search_wildberries(text):
+    if text.isdigit():
+        info = parse_wildberries(f"https://www.wildberries.ru/catalog/{text}/detail.aspx")
+        return [info] if info else []
+
     try:
         r = requests.get(
-            f"https://www.sportmaster.ru/search/?text={encoded}",
-            headers=SM_HEADERS, timeout=20,
+            f"https://search.wb.ru/exactmatch/ns/common/wildberries?query={requests.utils.quote(text)}&resultset=catalog",
+            headers=HEADERS, timeout=15,
         )
         if r.status_code != 200:
             return []
-        html = r.text
+        data = r.json()
     except:
         return []
 
     results = []
-    seen_links = set()
-
-    for pat in [
-        r'href="(/product/[^"]+)"',
-        r'href="(https?://(?:www\.)?sportmaster\.ru/product/[^"]+)"',
-    ]:
-        for m in re.finditer(pat, html):
-            href = m.group(1)
-            if not href.startswith("http"):
-                href = "https://www.sportmaster.ru" + href
-            if href in seen_links:
-                continue
-            seen_links.add(href)
-            results.append({
-                "name": f"Спортмастер #{len(results) + 1}",
-                "article": text,
-                "sale_price": 0,
-                "link": href,
-                "store": "sportmaster",
-            })
-            if len(results) >= 5:
-                break
-        if results:
+    seen = set()
+    for item in data.get("data", {}).get("products", []):
+        art = str(item.get("id", ""))
+        if not art or art in seen:
+            continue
+        seen.add(art)
+        price = item.get("salePriceU", 0) / 100
+        name = item.get("name", f"WB #{art}")
+        link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
+        results.append({
+            "name": name[:80],
+            "article": art,
+            "sale_price": price,
+            "link": link,
+            "store": "wildberries",
+        })
+        if len(results) >= 5:
             break
 
     return results
 
 
 def parse_product(url, store):
-    return parse_sportmaster(url) if store == "sportmaster" else parse_senstroy(url)
+    return parse_wildberries(url) if store == "wildberries" else parse_senstroy(url)
 
 
 def search_products(article, store):
-    return search_sportmaster(article) if store == "sportmaster" else search_senstroy(article)
+    return search_wildberries(article) if store == "wildberries" else search_senstroy(article)
 
 
 def store_emoji(store):
-    return {"senstroy": "🟢", "sportmaster": "🔴"}.get(store, "🟣")
+    return {"senstroy": "🟢", "wildberries": "🟣"}.get(store, "🟣")
 
 
 def store_name(store):
-    return {"senstroy": "Senstroy", "sportmaster": "Спортмастер"}.get(store, store)
+    return {"senstroy": "Senstroy", "wildberries": "Wildberries"}.get(store, store)
 
 
 # ─── Keyboards ──────────────────────────────────────────────────
@@ -323,7 +324,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏷 <b>PRICEBOT</b>\n"
         "Просто отправь артикул товара\n"
-        "Я сам найду его на Спортмастер и Senstroy\n\n"
+        "Я сам найду его на Wildberries и Senstroy\n\n"
         "Или выбери действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
@@ -350,8 +351,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📝 <b>Добавление товара</b>\n\n"
             "Просто отправь в чат <b>артикул</b> или <b>название</b>\n"
-            "Я сам поищу на Спортмастер и Senstroy\n\n"
-            "<i>Например: 123884DMX-99-44-46, HJS066B</i>",
+            "Я сам поищу на Wildberries и Senstroy\n\n"
+            "<i>Например: 12345678, HJS066B</i>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
@@ -492,7 +493,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["sportmaster", "senstroy"]
+ALL_STORES = ["wildberries", "senstroy"]
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
