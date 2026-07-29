@@ -220,10 +220,13 @@ def parse_yamarket(url):
 
 def search_yamarket(text):
     if text.isdigit():
-        url = f"https://market.yandex.ru/product/{text}"
-        info = parse_yamarket(url)
-        if info:
-            return [info]
+        return [{
+            "name": f"Яндекс Маркет товар",
+            "article": text,
+            "sale_price": 0,
+            "link": f"https://market.yandex.ru/product/{text}",
+            "store": "yamarket",
+        }]
 
     encoded = requests.utils.quote(text)
     html = None
@@ -256,16 +259,10 @@ def search_yamarket(text):
             if href in seen_links:
                 continue
             seen_links.add(href)
-            pid = re.search(r"/product/(\d+)", href)
-            if pid:
-                price_info = parse_yamarket(f"https://market.yandex.ru/product/{pid.group(1)}")
-                sale = price_info["sale_price"] if price_info else 0
-            else:
-                sale = 0
             results.append({
                 "name": f"Яндекс Маркет #{len(results) + 1}",
                 "article": text,
-                "sale_price": sale,
+                "sale_price": 0,
                 "link": href,
                 "store": "yamarket",
             })
@@ -742,7 +739,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["wildberries", "yamarket", "senstroy"]
+ALL_STORES = ["yamarket", "wildberries", "senstroy"]
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
