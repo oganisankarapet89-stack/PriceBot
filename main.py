@@ -839,5 +839,18 @@ def run_bot():
     loop.run_until_complete(_run())
 
 
+def run_flask():
+    from flask import Flask
+    app = Flask(__name__)
+    @app.route("/")
+    @app.route("/health")
+    def health():
+        return "ok"
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+
 if __name__ == "__main__":
+    import threading
+    threading.Thread(target=run_flask, daemon=True).start()
     run_bot()
