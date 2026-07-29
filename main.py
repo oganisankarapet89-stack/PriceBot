@@ -269,24 +269,140 @@ def search_yamarket(text):
     return results
 
 
+# ─── Ozon ────────────────────────────────────────────────────────
+
+def parse_ozon(url):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+    except:
+        return None
+    if r.status_code != 200:
+        return None
+    html = r.text
+
+    name = ""
+    n = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.DOTALL)
+    if n:
+        name = re.sub(r'<[^>]+>', '', n.group(1)).strip()
+    if not name:
+        t = re.search(r"<title>([^<]+)</title>", html)
+        if t:
+            name = t.group(1).split("—")[0].strip()
+    if not name:
+        name = "Ozon товар"
+
+    price = 0.0
+    m = re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+    if m:
+        try:
+            data = json.loads(m.group(1))
+            if isinstance(data, dict):
+                if "offers" in data:
+                    p = data["offers"].get("price", 0)
+                    if p:
+                        price = float(p)
+                elif "price" in data:
+                    price = float(data["price"])
+        except:
+            pass
+    if not price:
+        m = re.search(r'"price":\s*"?(\d+\.?\d*)"?', html)
+        if m:
+            price = float(m.group(1))
+    if not price:
+        m = re.search(r'"final_price":\s*"?(\d+\.?\d*)"?', html)
+        if m:
+            price = float(m.group(1))
+    if not price:
+        m = re.search(r'<span[^>]*>([\d\s]+)\s*[₽]', html[:10000])
+        if m:
+            price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
+
+    if price <= 0:
+        return None
+
+    return {"name": name, "sale_price": price, "link": url, "store": "ozon"}
+
+
+def search_ozon(text):
+    if text.startswith("http") and "ozon.ru" in text:
+        info = parse_ozon(text)
+        return [info] if info else []
+
+    encoded = requests.utils.quote(text)
+    url = f"https://www.ozon.ru/search/?text={encoded}&from_global=true"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+    except:
+        return []
+    if r.status_code != 200:
+        return []
+    html = r.text
+
+    results = []
+    seen_links = set()
+
+    blocks = re.findall(
+        r'href="(/product/[^"]+/)"[^>]*>.*?<span[^>]*>([^<]+)</span>',
+        html[:200000]
+    )
+    for href, title in blocks:
+        full_url = "https://www.ozon.ru" + href
+        if full_url in seen_links:
+            continue
+        seen_links.add(full_url)
+        results.append({
+            "name": re.sub(r'<[^>]+>', '', title).strip()[:80],
+            "article": text,
+            "sale_price": 0,
+            "link": full_url,
+            "store": "ozon",
+        })
+        if len(results) >= 5:
+            break
+
+    if not results:
+        links = re.findall(r'href="(/product/[^"]+)"', html)
+        for link in links:
+            full_url = "https://www.ozon.ru" + link
+            if full_url in seen_links:
+                continue
+            seen_links.add(full_url)
+            results.append({
+                "name": f"Ozon #{len(results) + 1}",
+                "article": text,
+                "sale_price": 0,
+                "link": full_url,
+                "store": "ozon",
+            })
+            if len(results) >= 5:
+                break
+
+    return results
+
+
 def parse_product(url, store):
     if store == "yamarket":
         return parse_yamarket(url)
+    if store == "ozon":
+        return parse_ozon(url)
     return parse_senstroy(url)
 
 
 def search_products(article, store):
     if store == "yamarket":
         return search_yamarket(article)
+    if store == "ozon":
+        return search_ozon(article)
     return search_senstroy(article)
 
 
 def store_emoji(store):
-    return "🟢" if store == "senstroy" else "🟡"
+    return {"senstroy": "🟢", "yamarket": "🟡", "ozon": "🔵"}.get(store, "🟣")
 
 
 def store_name(store):
-    return "Senstroy" if store == "senstroy" else "Яндекс Маркет"
+    return {"senstroy": "Senstroy", "yamarket": "Яндекс Маркет", "ozon": "Ozon"}.get(store, store)
 
 
 # ─── Keyboards ──────────────────────────────────────────────────
@@ -304,12 +420,13 @@ def main_menu_keyboard():
     ])
 
 
-def store_choice_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🟢 Senstroy", callback_data="store_senstroy")],
-        [InlineKeyboardButton("🟡 Яндекс Маркет", callback_data="store_yamarket")],
-        [InlineKeyboardButton("◀️ Назад", callback_data="back")],
-    ])
+    def store_choice_keyboard():
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("🟢 Senstroy", callback_data="store_senstroy")],
+            [InlineKeyboardButton("🟡 Яндекс Маркет", callback_data="store_yamarket")],
+            [InlineKeyboardButton("🔵 Ozon", callback_data="store_ozon")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+        ])
 
 
 def settings_keyboard(chat_id):
@@ -348,7 +465,7 @@ def products_keyboard(rows):
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏷 <b>PRICEBOT</b>\n"
-        "Отслеживаю цены на Senstroy и Яндекс Маркет\n\n"
+        "Отслеживаю цены на Senstroy, Яндекс Маркет и Ozon\n\n"
         "Выбери действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
@@ -365,7 +482,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("add_store", None)
         await query.edit_message_text(
             "🏷 <b>PRICEBOT</b>\n"
-            "Отслеживаю цены на Senstroy и Яндекс Маркет\n\n"
+            "Отслеживаю цены на Senstroy, Яндекс Маркет и Ozon\n\n"
             "Выбери действие:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
@@ -395,6 +512,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🟡 <b>Яндекс Маркет</b>\n\n"
             "Отправь название или артикул товара\n"
             "<i>(например: iPhone 15, Bosch GSB 13)</i>\n\n"
+            "◀️ Нажми /start для отмены",
+            parse_mode="HTML",
+        )
+
+    elif data == "store_ozon":
+        context.user_data["add_store"] = "ozon"
+        await query.edit_message_text(
+            "🔵 <b>Ozon</b>\n\n"
+            "Отправь название товара или ссылку на Ozon\n"
+            "<i>(например: iPhone 15 или https://www.ozon.ru/product/12345/)</i>\n\n"
             "◀️ Нажми /start для отмены",
             parse_mode="HTML",
         )
