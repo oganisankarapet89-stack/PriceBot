@@ -418,10 +418,11 @@ def store_name(store):
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [
+            InlineKeyboardButton("➕ Добавить товар", callback_data="add"),
             InlineKeyboardButton("📦 Мои товары", callback_data="list"),
-            InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
         ],
         [
+            InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings"),
         ],
     ])
@@ -485,6 +486,18 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Или выбери действие:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
+        )
+
+    elif data == "add":
+        await query.edit_message_text(
+            "📝 <b>Добавление товара</b>\n\n"
+            "Просто отправь в чат <b>артикул</b> или <b>название</b>\n"
+            "Я сам поищу на Senstroy, Яндекс Маркет и Ozon\n\n"
+            "<i>Например: HJS066B, iPhone 15, Bosch GSB 13</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back")],
+            ]),
         )
 
     elif data == "list":
