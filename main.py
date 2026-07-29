@@ -112,19 +112,6 @@ def parse_senstroy(url):
 def search_senstroy(article):
     import html as html_mod
 
-    # Try direct URL lookup for numeric IDs
-    if article.isdigit():
-        pid = int(article)
-        try:
-            from product_map import PRODUCT_URLS
-            if pid in PRODUCT_URLS:
-                info = parse_senstroy(PRODUCT_URLS[pid])
-                if info:
-                    info["article"] = str(pid)
-                    return [info]
-        except ImportError:
-            pass
-
     url = f"https://senstroy.ru/catalog/?q={article}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
@@ -358,14 +345,27 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("🔍 <b>Ищу товар на Senstroy...</b>", parse_mode="HTML")
 
-    results = await asyncio.get_event_loop().run_in_executor(None, search_senstroy, text)
+    # If it's a direct URL from Senstroy, parse it directly
+    if "senstroy.ru/catalog/" in text:
+        m = re.search(r"(https?://senstroy\.ru/catalog/[^\s]+)", text)
+        if m:
+            info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, m.group(1))
+            if info:
+                results = [info]
+            else:
+                results = []
+        else:
+            results = []
+    else:
+        results = await asyncio.get_event_loop().run_in_executor(None, search_senstroy, text)
 
     if not results:
-        await update.message.reply_text(
-            "😕 <b>Ничего не найдено</b>\n"
-            "Проверь артикул или попробуй другой запрос.",
-            parse_mode="HTML",
-        )
+        msg = "😕 <b>Ничего не найдено</b>\n"
+        if text.isdigit():
+            msg += "Попробуй отправить <b>ссылку</b> на товар с сайта senstroy.ru или <b>название</b> товара."
+        else:
+            msg += "Проверь артикул или попробуй другой запрос."
+        await update.message.reply_text(msg, parse_mode="HTML")
         return
 
     conn = get_db()
