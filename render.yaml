@@ -1,5 +1,5 @@
 services:
-  - type: web
+  - type: worker
     name: pricebot
     runtime: python
     buildCommand: pip install -r requirements.txt
