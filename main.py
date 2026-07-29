@@ -389,11 +389,107 @@ def search_ozon(text):
     return results
 
 
+# ─── Wildberries ───────────────────────────────────────────────────
+
+def _wb_basket(article: str) -> str:
+    try:
+        n = int(article[:2])
+        baskets = [
+            (0, 100, "01"), (100, 200, "02"), (200, 300, "03"), (300, 400, "04"),
+            (400, 500, "05"), (500, 600, "06"), (600, 700, "07"), (700, 800, "08"),
+            (800, 900, "09"), (900, 1000, "10"), (1000, 1100, "11"), (1100, 1200, "12"),
+            (1200, 1300, "13"), (1300, 1400, "14"), (1400, 1500, "15"), (1500, 1600, "16"),
+            (1600, 1700, "17"), (1700, 1800, "18"), (1800, 1900, "19"), (1900, 2000, "20"),
+            (2000, 3000, "21"), (3000, 4000, "22"),
+        ]
+        for low, high, b in baskets:
+            if low <= n < high:
+                return b
+    except:
+        pass
+    return "01"
+
+
+def parse_wildberries(url):
+    m = re.search(r"/catalog/(\d+)", url)
+    if not m:
+        m = re.search(r"wildberries\.ru/(\d+)", url)
+    if not m:
+        return None
+    art = m.group(1)
+    basket = _wb_basket(art)
+    vol = art[:-2] if len(art) > 2 else "0"
+    part = art[:-2] if len(art) > 2 else "0"
+    api = f"https://basket-{basket}.wbbasket.ru/vol{vol}/part{part}/{art}/info/ru/card.json"
+    try:
+        r = requests.get(api, headers=HEADERS, timeout=15)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+    except:
+        return None
+
+    name = data.get("imt_name", data.get("subject", "Wildberries товар"))
+    sizes = data.get("sizes", [])
+    price = 0
+    if sizes:
+        p = sizes[0].get("price", {})
+        total = p.get("total", 0)
+        price = total / 100 if total else 0
+
+    if price <= 0:
+        return None
+
+    link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
+    return {"name": name, "sale_price": price, "link": link, "store": "wildberries"}
+
+
+def search_wildberries(text):
+    if text.isdigit():
+        info = parse_wildberries(f"https://www.wildberries.ru/catalog/{text}/detail.aspx")
+        return [info] if info else []
+
+    try:
+        r = requests.get(
+            f"https://search.wb.ru/exactmatch/ns/common/wildberries?query={requests.utils.quote(text)}&resultset=catalog",
+            headers=HEADERS, timeout=15,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+    except:
+        return []
+
+    results = []
+    seen = set()
+    for item in data.get("data", {}).get("products", []):
+        art = str(item.get("id", ""))
+        if not art or art in seen:
+            continue
+        seen.add(art)
+        price = item.get("salePriceU", 0) / 100
+        name = item.get("name", f"WB #{art}")
+        link = f"https://www.wildberries.ru/catalog/{art}/detail.aspx"
+        results.append({
+            "name": name[:80],
+            "article": art,
+            "sale_price": price,
+            "link": link,
+            "store": "wildberries",
+        })
+        if len(results) >= 5:
+            break
+
+    return results
+
+
 def parse_product(url, store):
     if store == "yamarket":
         return parse_yamarket(url)
     if store == "ozon":
         return parse_ozon(url)
+    if store == "wildberries":
+        return parse_wildberries(url)
     return parse_senstroy(url)
 
 
@@ -402,15 +498,17 @@ def search_products(article, store):
         return search_yamarket(article)
     if store == "ozon":
         return search_ozon(article)
+    if store == "wildberries":
+        return search_wildberries(article)
     return search_senstroy(article)
 
 
 def store_emoji(store):
-    return {"senstroy": "🟢", "yamarket": "🟡", "ozon": "🔵"}.get(store, "🟣")
+    return {"senstroy": "🟢", "yamarket": "🟡", "ozon": "🔵", "wildberries": "🟣"}.get(store, "🟣")
 
 
 def store_name(store):
-    return {"senstroy": "Senstroy", "yamarket": "Яндекс Маркет", "ozon": "Ozon"}.get(store, store)
+    return {"senstroy": "Senstroy", "yamarket": "Яндекс Маркет", "ozon": "Ozon", "wildberries": "Wildberries"}.get(store, store)
 
 
 # ─── Keyboards ──────────────────────────────────────────────────
@@ -465,7 +563,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏷 <b>PRICEBOT</b>\n"
         "Просто отправь артикул товара\n"
-        "Я сам найду его на Senstroy, Яндекс Маркет и Ozon\n\n"
+        "Я сам найду его на Senstroy и Wildberries\n\n"
         "Или выбери действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
@@ -482,7 +580,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🏷 <b>PRICEBOT</b>\n"
             "Просто отправь артикул товара\n"
-            "Я сам найду его на Senstroy, Яндекс Маркет и Ozon\n\n"
+            "Я сам найду его на Senstroy и Wildberries\n\n"
             "Или выбери действие:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
@@ -492,8 +590,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "📝 <b>Добавление товара</b>\n\n"
             "Просто отправь в чат <b>артикул</b> или <b>название</b>\n"
-            "Я сам поищу на Senstroy, Яндекс Маркет и Ozon\n\n"
-            "<i>Например: HJS066B, iPhone 15, Bosch GSB 13</i>",
+            "Я сам поищу на Senstroy и Wildberries\n\n"
+            "<i>Например: HJS066B, 12345678, iPhone 15</i>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀️ Назад", callback_data="back")],
@@ -634,7 +732,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["senstroy", "yamarket", "ozon"]
+ALL_STORES = ["senstroy", "yamarket", "ozon", "wildberries"]
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
