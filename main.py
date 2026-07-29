@@ -410,23 +410,13 @@ def store_name(store):
 def main_menu_keyboard():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("➕ Добавить товар", callback_data="add"),
             InlineKeyboardButton("📦 Мои товары", callback_data="list"),
+            InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
         ],
         [
-            InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings"),
         ],
     ])
-
-
-    def store_choice_keyboard():
-        return InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Senstroy", callback_data="store_senstroy")],
-            [InlineKeyboardButton("🟡 Яндекс Маркет", callback_data="store_yamarket")],
-            [InlineKeyboardButton("🔵 Ozon", callback_data="store_ozon")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back")],
-        ])
 
 
 def settings_keyboard(chat_id):
@@ -465,8 +455,9 @@ def products_keyboard(rows):
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏷 <b>PRICEBOT</b>\n"
-        "Отслеживаю цены на Senstroy, Яндекс Маркет и Ozon\n\n"
-        "Выбери действие:",
+        "Просто отправь артикул товара\n"
+        "Я сам найду его на Senstroy, Яндекс Маркет и Ozon\n\n"
+        "Или выбери действие:",
         parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
@@ -479,51 +470,13 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat.id
 
     if data == "back":
-        context.user_data.pop("add_store", None)
         await query.edit_message_text(
             "🏷 <b>PRICEBOT</b>\n"
-            "Отслеживаю цены на Senstroy, Яндекс Маркет и Ozon\n\n"
-            "Выбери действие:",
+            "Просто отправь артикул товара\n"
+            "Я сам найду его на Senstroy, Яндекс Маркет и Ozon\n\n"
+            "Или выбери действие:",
             parse_mode="HTML",
             reply_markup=main_menu_keyboard(),
-        )
-
-    elif data == "add":
-        await query.edit_message_text(
-            "🏪 <b>Выбери магазин</b>\n\n"
-            "С какого сайта добавить товар?",
-            parse_mode="HTML",
-            reply_markup=store_choice_keyboard(),
-        )
-
-    elif data == "store_senstroy":
-        context.user_data["add_store"] = "senstroy"
-        await query.edit_message_text(
-            "🟢 <b>Senstroy</b>\n\n"
-            "Отправь артикул товара\n"
-            "<i>(например: HJS066B, ZTI.613.001515N, 4306)</i>\n\n"
-            "◀️ Нажми /start для отмены",
-            parse_mode="HTML",
-        )
-
-    elif data == "store_yamarket":
-        context.user_data["add_store"] = "yamarket"
-        await query.edit_message_text(
-            "🟡 <b>Яндекс Маркет</b>\n\n"
-            "Отправь название или артикул товара\n"
-            "<i>(например: iPhone 15, Bosch GSB 13)</i>\n\n"
-            "◀️ Нажми /start для отмены",
-            parse_mode="HTML",
-        )
-
-    elif data == "store_ozon":
-        context.user_data["add_store"] = "ozon"
-        await query.edit_message_text(
-            "🔵 <b>Ozon</b>\n\n"
-            "Отправь название товара или ссылку на Ozon\n"
-            "<i>(например: iPhone 15 или https://www.ozon.ru/product/12345/)</i>\n\n"
-            "◀️ Нажми /start для отмены",
-            parse_mode="HTML",
         )
 
     elif data == "list":
@@ -660,32 +613,32 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    store = context.user_data.get("add_store")
-    if not store:
-        return
+ALL_STORES = ["senstroy", "yamarket", "ozon"]
 
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
 
-    if not text:
+    if not text or len(text) > 100:
         return
 
-    if store == "senstroy" and not re.match(r'^[A-Za-z0-9.]+$', text):
-        await update.message.reply_text(
-            "⚠️ Для Senstroy артикул должен содержать только <b>буквы, цифры и точки</b>.\n"
-            "Попробуй ещё или нажми /start для выбора другого магазина.",
-            parse_mode="HTML",
-        )
-        return
+    await update.message.reply_text("🔍 <b>Ищу товар по всем магазинам...</b>", parse_mode="HTML")
 
-    await update.message.reply_text(f"🔍 <b>Ищу на {store_name(store)}...</b>", parse_mode="HTML")
-    results = await asyncio.get_event_loop().run_in_executor(None, search_products, text, store)
+    all_results = []
+    for store in ALL_STORES:
+        try:
+            results = await asyncio.get_event_loop().run_in_executor(
+                None, search_products, text, store
+            )
+            all_results.extend(results)
+        except:
+            pass
 
-    if not results:
+    if not all_results:
         await update.message.reply_text(
-            f"😕 <b>Ничего не найдено</b> на {store_name(store)}\n"
-            f"Попробуй другой запрос или нажми /start.",
+            "😕 <b>Ничего не найдено</b>\n"
+            "Проверь артикул или попробуй другой запрос.",
             parse_mode="HTML",
         )
         return
@@ -699,7 +652,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     added = []
     skipped = []
-    for r in results:
+    for r in all_results:
         if r["link"] in existing_urls:
             skipped.append(r)
             continue
@@ -711,13 +664,11 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
 
-    context.user_data.pop("add_store", None)
-
     if added:
         lines = []
         for r in added:
             price_str = f"{r['sale_price']:.2f} ₽" if r["sale_price"] > 0 else "—"
-            lines.append(f"{store_emoji(r['store'])} <b>{r['name'][:50]}</b>\n💰 {price_str}")
+            lines.append(f"{store_emoji(r['store'])} <b>{r['name'][:50]}</b>\n💰 {price_str}  🔗 {r['link']}")
         summary = "\n\n".join(lines)
         msg = f"✅ <b>Добавлено {len(added)} товаров!</b>\n\n{summary}"
         if skipped:
