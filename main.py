@@ -732,7 +732,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["senstroy", "yamarket", "ozon", "wildberries"]
+ALL_STORES = ["wildberries", "senstroy"]
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
