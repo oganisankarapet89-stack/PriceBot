@@ -109,8 +109,123 @@ def parse_senstroy(url):
     return {"name": name, "sale_price": price / 2, "link": url}
 
 
+SENSTROY_PRODUCTS = {
+    28011: ("/catalog/kolodets/truba_dvukhsloynaya_gofrirovannaya/28011/",),
+    28243: ("/catalog/drenazh/truba_drenazhnaya_odnosloynaya/28243/",),
+    2439: ("/catalog/pnd_truby_i_fitingi/truby_pnd/2439/",),
+    3004: ("/catalog/pnd_truby_i_fitingi/truby_pnd/3004/",),
+    4365: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4365/",),
+    4367: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4367/",),
+    4369: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4369/",),
+    4816: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4816/",),
+    4362: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4362/",),
+    4368: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4368/",),
+    4372: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4372/",),
+    4374: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4374/",),
+    4375: ("/catalog/pnd_truby_i_fitingi/truby_pnd/4375/",),
+    3880: ("/catalog/pnd_truby_i_fitingi/truby_pnd/3880/",),
+    3883: ("/catalog/pnd_truby_i_fitingi/truby_pnd/3883/",),
+    3365: ("/catalog/kanalizatsiya/naruzhnye_truby/3365/",),
+    3370: ("/catalog/kanalizatsiya/naruzhnye_truby/3370/",),
+    3361: ("/catalog/kanalizatsiya/naruzhnye_truby/3361/",),
+    3363: ("/catalog/kanalizatsiya/naruzhnye_truby/3363/",),
+    3364: ("/catalog/kanalizatsiya/naruzhnye_truby/3364/",),
+    2218: ("/catalog/instrumenty/payalniki_dlya_ppr/2218/",),
+    5105: ("/catalog/fitingi_dlya_otopleniya/anodirovannye/5105/",),
+    28073: ("/catalog/kanalizatsiya/fitingi_naruzhnye/28073/",),
+    1659: ("/catalog/instrumenty/payalniki_dlya_ppr/1659/",),
+    2217: ("/catalog/instrumenty/payalniki_dlya_ppr/2217/",),
+    3256: ("/catalog/instrumenty/payalniki_dlya_ppr/3256/",),
+    3379: ("/catalog/kanalizatsiya/fitingi_vnutrennye/3379/",),
+    2222: ("/catalog/instrumenty/press_instrumenty/2222/",),
+    2481: ("/catalog/pnd_truby_i_fitingi/fitingi_pnd/2481/",),
+    2219: ("/catalog/instrumenty/payalniki_dlya_ppr/2219/",),
+    2221: ("/catalog/instrumenty/payalniki_dlya_ppr/2221/",),
+    5310: ("/catalog/kanalizatsiya/fitingi_naruzhnye/5310/",),
+    1658: ("/catalog/instrumenty/payalniki_dlya_ppr/1658/",),
+    28071: ("/catalog/kanalizatsiya/fitingi_naruzhnye/28071/",),
+    2482: ("/catalog/pnd_truby_i_fitingi/fitingi_pnd/2482/",),
+    4209: ("/catalog/instrumenty/payalniki_dlya_ppr/4209/",),
+    1657: ("/catalog/instrumenty/payalniki_dlya_ppr/1657/",),
+    28074: ("/catalog/kanalizatsiya/fitingi_naruzhnye/28074/",),
+    28069: ("/catalog/kanalizatsiya/fitingi_naruzhnye/28069/",),
+    2220: ("/catalog/instrumenty/payalniki_dlya_ppr/2220/",),
+    5934: ("/catalog/fitingi_dlya_otopleniya/metalloplast_press_obzhimnoy/5934/",),
+    5949: ("/catalog/fitingi_dlya_otopleniya/metalloplast_press_obzhimnoy/5949/",),
+    4285: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_gofra/4285/",),
+    4789: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_press/4789/",),
+    5732: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_press/5732/",),
+    5706: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_press/5706/",),
+    4700: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_press/4700/",),
+    4752: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_press/4752/",),
+    4283: ("/catalog/fitingi_dlya_otopleniya/aksialnye/4283/",),
+    5009: ("/catalog/polipropilen/fitingi_polipropilen/5009/",),
+    4539: ("/catalog/polipropilen/fitingi_polipropilen/4539/",),
+    4543: ("/catalog/polipropilen/fitingi_polipropilen/4543/",),
+    4536: ("/catalog/polipropilen/fitingi_polipropilen/4536/",),
+    3921: ("/catalog/pnd_truby_i_fitingi/latunnye_fitingi_pnd/3921/",),
+    4300: ("/catalog/fitingi_dlya_otopleniya/nerzhaveyka_gofra/4300/",),
+    1052: ("/catalog/polipropilen/fitingi_polipropilen/1052/",),
+    3403: ("/catalog/pnd_truby_i_fitingi/fitingi_pnd/3403/",),
+    3922: ("/catalog/pnd_truby_i_fitingi/latunnye_fitingi_pnd/3922/",),
+    5275: ("/catalog/fitingi_dlya_otopleniya/anodirovannye/5275/",),
+    5967: ("/catalog/fitingi_dlya_otopleniya/metalloplast_press_obzhimnoy/5967/",),
+    28285: ("/catalog/polipropilen/krany_polipropilen/28285/",),
+    28286: ("/catalog/polipropilen/krany_polipropilen/28286/",),
+    2004: ("/catalog/radiatory_i_konvektory/armatura_radiatornaya/2004/",),
+    2017: ("/catalog/radiatory_i_konvektory/armatura_radiatornaya/2017/",),
+    27932: ("/catalog/kollektory/manometry_i_komplektuyushchie/27932/",),
+    1620: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1620/",),
+    1621: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1621/",),
+    1628: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1628/",),
+    1603: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_i_ventili/1603/",),
+    1615: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_i_ventili/1615/",),
+    4562: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_i_ventili/4562/",),
+    4169: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_i_ventili/4169/",),
+    3210: ("/catalog/polipropilen/krany_polipropilen/3210/",),
+    3184: ("/catalog/kollektory/manometry_i_komplektuyushchie/3184/",),
+    4489: ("/catalog/kollektory/raspredelitelnye/4489/",),
+    4490: ("/catalog/kollektory/raspredelitelnye/4490/",),
+    4918: ("/catalog/kollektory/raspredelitelnye/4918/",),
+    2049: ("/catalog/kollektory/raspredelitelnye/2049/",),
+    3157: ("/catalog/kollektory/raspredelitelnye/3157/",),
+    3160: ("/catalog/kollektory/raspredelitelnye/3160/",),
+    2248: ("/catalog/polipropilen/krany_polipropilen/2248/",),
+    2265: ("/catalog/polipropilen/krany_polipropilen/2265/",),
+    1692: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1692/",),
+    1694: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1694/",),
+    27971: ("/catalog/kollektory/manometry_i_komplektuyushchie/27971/",),
+    2777: ("/catalog/polipropilen/krany_polipropilen/2777/",),
+    2277: ("/catalog/polipropilen/krany_polipropilen/2277/",),
+    1690: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1690/",),
+    2255: ("/catalog/polipropilen/krany_polipropilen/2255/",),
+    5505: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_i_ventili/5505/",),
+    2249: ("/catalog/polipropilen/krany_polipropilen/2249/",),
+    1689: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_bytovye/1689/",),
+    2279: ("/catalog/polipropilen/krany_polipropilen/2279/",),
+    5504: ("/catalog/armatura_dlya_sistemy_otopleniya/krany_i_ventili/5504/",),
+    2275: ("/catalog/polipropilen/krany_polipropilen/2275/",),
+    27976: ("/catalog/kollektory/manometry_i_komplektuyushchie/27976/",),
+    2263: ("/catalog/polipropilen/krany_polipropilen/2263/",),
+    1952: ("/catalog/polipropilen/krany_polipropilen/1952/",),
+    2271: ("/catalog/polipropilen/krany_polipropilen/2271/",),
+    2258: ("/catalog/polipropilen/krany_polipropilen/2258/",),
+}
+
+
 def search_senstroy(article):
     import html as html_mod
+
+    # Try direct lookup for numeric IDs
+    if article.isdigit():
+        pid = int(article)
+        if pid in SENSTROY_PRODUCTS:
+            url = "https://senstroy.ru" + SENSTROY_PRODUCTS[pid][0]
+            info = parse_senstroy(url)
+            if info:
+                info["article"] = str(pid)
+                return [info]
+
     url = f"https://senstroy.ru/catalog/?q={article}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
@@ -170,7 +285,6 @@ def main_menu_keyboard():
             InlineKeyboardButton("📦 Мои товары", callback_data="list"),
         ],
         [
-            InlineKeyboardButton("🔄 Проверить цены", callback_data="check"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="settings"),
         ],
     ])
@@ -275,48 +389,6 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             text, parse_mode="HTML", reply_markup=products_keyboard(rows)
         )
-
-    elif data == "check":
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT id, url, name, last_price FROM products WHERE chat_id=?",
-            (chat_id,),
-        ).fetchall()
-        conn.close()
-        if not rows:
-            await query.edit_message_text("📭 Нет товаров.", reply_markup=main_menu_keyboard())
-            return
-        await query.edit_message_text("🔍 <b>Проверяю цены...</b>", parse_mode="HTML")
-
-        for r in rows:
-            pid, url, last_price = r["id"], r["url"], r["last_price"]
-            info = await asyncio.get_event_loop().run_in_executor(None, parse_senstroy, url)
-            if not info:
-                await query.message.reply_text(
-                    f"⚠️ <b>Ошибка</b> #{pid}\n🟢 <code>{url[:60]}</code>",
-                    parse_mode="HTML",
-                )
-                continue
-            new_price = info["sale_price"]
-            if last_price > 0 and new_price != last_price:
-                diff = new_price - last_price
-                sym = "+" if diff > 0 else ""
-                msg = (
-                    f"🟢 <b>{info['name']}</b>\n"
-                    f"💰 {last_price:.2f} → {new_price:.2f} ₽ (<b>{sym}{diff:.2f}</b>)\n"
-                    f"🔗 {info['link']}"
-                )
-            else:
-                msg = (
-                    f"🟢 <b>{info['name']}</b>\n"
-                    f"💰 {new_price:.2f} ₽ — без изменений\n"
-                    f"🔗 {info['link']}"
-                )
-            conn = get_db()
-            conn.execute("UPDATE products SET last_price=?, name=? WHERE id=?", (new_price, info["name"], pid))
-            conn.commit()
-            conn.close()
-            await query.message.reply_text(msg, parse_mode="HTML")
 
     elif data == "settings":
         await query.edit_message_text(
