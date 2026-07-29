@@ -112,7 +112,6 @@ def parse_senstroy(url):
 def search_senstroy(article):
     import html as html_mod
 
-    article = article.split(".")[0]
     url = f"https://senstroy.ru/catalog/?q={article}"
     try:
         r = requests.get(url, headers=HEADERS, timeout=20)
