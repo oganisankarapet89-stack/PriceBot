@@ -188,29 +188,29 @@ def parse_yamarket(url):
         name = "Яндекс Маркет товар"
 
     price = 0.0
-    ld = re.search(r'<script\s+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL)
-    if ld:
-        try:
-            data = json.loads(ld.group(1))
-            if isinstance(data, dict):
-                off = data.get("offers", data)
-                if isinstance(off, dict):
-                    price = float(off.get("price", 0))
-        except:
-            pass
+    for pat in [
+        r'<span\s+data-auto="price"[^>]*>([\d\s]+)',
+        r'<meta\s+itemprop="price"\s+content="([\d.]+)"',
+        r'"price":\s*["\']?(\d+\.?\d*)["\']?',
+        r'data-price="([\d.]+)"',
+        r'"priceRu":\s*["\']?(\d+\.?\d*)["\']?',
+    ]:
+        m = re.search(pat, html)
+        if m:
+            price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
+            if price > 0:
+                break
     if not price:
-        for pat in [
-            r'<span\s+data-auto="price"[^>]*>([\d\s]+)',
-            r'<meta\s+itemprop="price"\s+content="([\d.]+)"',
-            r'"price":\s*["\']?(\d+\.?\d*)["\']?',
-            r'data-price="([\d.]+)"',
-            r'"priceRu":\s*["\']?(\d+\.?\d*)["\']?',
-        ]:
-            m = re.search(pat, html)
-            if m:
-                price = float(m.group(1).replace("\xa0", "").replace(" ", ""))
-                if price > 0:
-                    break
+        ld = re.search(r'<script\s+type="application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL)
+        if ld:
+            try:
+                data = json.loads(ld.group(1))
+                if isinstance(data, dict):
+                    off = data.get("offers", data)
+                    if isinstance(off, dict):
+                        price = float(off.get("price", 0))
+            except:
+                pass
 
     if price <= 0:
         return None
@@ -219,17 +219,21 @@ def parse_yamarket(url):
 
 
 def search_yamarket(text):
+    if text.isdigit():
+        url = f"https://market.yandex.ru/product/{text}"
+        info = parse_yamarket(url)
+        if info:
+            return [info]
+
     encoded = requests.utils.quote(text)
-    urls = [
+    html = None
+    for url in [
         f"https://market.yandex.ru/search?text={encoded}&cpa=0",
         f"https://m.market.yandex.ru/search?text={encoded}",
-    ]
-
-    html = None
-    for url in urls:
+    ]:
         try:
             r = requests.get(url, headers=YAMARKET_HEADERS, timeout=25)
-            if r.status_code == 200 and len(r.text) > 500:
+            if r.status_code == 200 and len(r.text) > 1000:
                 html = r.text
                 break
         except:
@@ -243,19 +247,25 @@ def search_yamarket(text):
 
     for pat in [
         r'href="(https?://market\.yandex\.ru/(?:product|cc)/[^"]+)"',
-        r'href="(/product/[^"]+)"',
+        r'href="(/product/\d+[^"]*)"',
     ]:
         for m in re.finditer(pat, html):
             href = m.group(1)
             if not href.startswith("http"):
                 href = "https://market.yandex.ru" + href
-            if "market.yandex" not in href or href in seen_links:
+            if href in seen_links:
                 continue
             seen_links.add(href)
+            pid = re.search(r"/product/(\d+)", href)
+            if pid:
+                price_info = parse_yamarket(f"https://market.yandex.ru/product/{pid.group(1)}")
+                sale = price_info["sale_price"] if price_info else 0
+            else:
+                sale = 0
             results.append({
                 "name": f"Яндекс Маркет #{len(results) + 1}",
                 "article": text,
-                "sale_price": 0,
+                "sale_price": sale,
                 "link": href,
                 "store": "yamarket",
             })
@@ -732,7 +742,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
 
-ALL_STORES = ["wildberries", "senstroy"]
+ALL_STORES = ["wildberries", "yamarket", "senstroy"]
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
